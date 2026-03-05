@@ -5,7 +5,7 @@ import os
 import re
 from typing import Any, Dict, List
 
-import google.generativeai as genai
+import google.genai as genai
 
 
 class GeminiClassifier:
@@ -14,10 +14,9 @@ class GeminiClassifier:
         self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
         self.enabled = bool(self.api_key)
         if self.enabled:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel(self.model_name)
+            self.client = genai.Client(api_key=self.api_key)
         else:
-            self.model = None
+            self.client = None
 
     def suggest(
         self,
@@ -25,11 +24,11 @@ class GeminiClassifier:
         objeto_contratacao: str,
         context_payload: Dict[str, Any],
     ) -> Dict[str, Any]:
-        if not self.enabled or self.model is None:
+        if not self.enabled or self.client is None:
             return self._fallback_response(context_payload)
 
         prompt = self._build_prompt(finalidade, objeto_contratacao, context_payload)
-        response = self.model.generate_content(prompt)
+        response = self.client.models.generate_content(model=self.model_name, contents=prompt)
         text = getattr(response, "text", "") or ""
         parsed = self._extract_json(text)
         if parsed:
