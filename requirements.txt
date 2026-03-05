@@ -4,5 +4,5 @@ pandas
 openpyxl
 pypdf
 beautifulsoup4
-google-generativeai
+google-genai
 python-dotenv
