@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import os
 import re
 from dataclasses import dataclass
@@ -28,6 +29,41 @@ def _score_text(query: str, target: str) -> float:
         return 0.0
     overlap = len(query_tokens.intersection(target_tokens))
     return overlap / max(len(query_tokens), 1)
+
+
+def _fuzzy_token_score(query: str, target: str, threshold: float = 0.75) -> float:
+    """Score query against target using fuzzy token matching to handle typos.
+
+    Each query token is matched to the best-scoring target token via
+    SequenceMatcher. A token pair is counted as a match when the similarity
+    ratio meets *threshold*.  The result is the fraction of query tokens that
+    found a fuzzy match.
+
+    Args:
+        query: The search string (may contain typos).
+        target: The candidate string to score against.
+        threshold: Minimum SequenceMatcher ratio to consider two tokens a match.
+
+    Returns:
+        Float in [0.0, 1.0] — fraction of query tokens matched.
+    """
+    query_tokens = _tokenize(query)
+    target_tokens = _tokenize(target)
+    if not query_tokens or not target_tokens:
+        return 0.0
+    matched = 0
+    for qt in query_tokens:
+        best = 0.0
+        for tt in target_tokens:
+            ratio = difflib.SequenceMatcher(None, qt, tt).ratio()
+            if ratio >= 1.0:  # perfect match — short-circuit
+                best = ratio
+                break
+            if ratio > best:
+                best = ratio
+        if best >= threshold:
+            matched += 1
+    return matched / len(query_tokens)
 
 
 @dataclass
@@ -168,12 +204,12 @@ class KnowledgeRepository:
             mask = df["_search_text"].str.contains(token_list[0], regex=False, na=False)
             for token in token_list[1:]:
                 mask = mask | df["_search_text"].str.contains(token, regex=False, na=False)
-            df = df[mask]
+            df_exact = df[mask]
+        else:
+            df_exact = df
 
-        if df.empty:
-            return []
-
-        for _, row in df.head(5000).iterrows():
+        # Score exact matches
+        for _, row in df_exact.head(5000).iterrows():
             description = _normalize_spaces(
                 f"{row.get('Descrição Material ou Serviço', '')} {row.get('Item', '')} {row.get('Complementação da Especificação', '')}"
             )
@@ -191,6 +227,28 @@ class KnowledgeRepository:
                     "score": f"{score:.4f}",
                 }
             )
+
+        # When exact token matching finds nothing, fall back to fuzzy matching
+        # to handle typos (e.g. "computaor" → "computador").
+        if not candidates and token_list:
+            for _, row in df.head(5000).iterrows():
+                description = _normalize_spaces(
+                    f"{row.get('Descrição Material ou Serviço', '')} {row.get('Item', '')} {row.get('Complementação da Especificação', '')}"
+                )
+                score = _fuzzy_token_score(query, description)
+                if score <= 0:
+                    continue
+                candidates.append(
+                    {
+                        "codigo_material_servico": str(row.get("Código Material ou Serviço", "")).strip(),
+                        "descricao_material_servico": str(row.get("Descrição Material ou Serviço", "")).strip(),
+                        "item": str(row.get("Item", "")).strip(),
+                        "situacao_item": str(row.get("Situação do Item", "")).strip(),
+                        "linhas_fornecimento": str(row.get("Linhas de Fornecimento", "")).strip(),
+                        "natureza_despesa": str(row.get("Natureza da Despesa", "")).strip(),
+                        "score": f"{score:.4f}",
+                    }
+                )
 
         candidates.sort(key=lambda item: float(item["score"]), reverse=True)
         return candidates[:max_results]
