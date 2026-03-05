@@ -45,8 +45,8 @@ class KnowledgeRepository:
         self.process_docs_text = self._load_process_documents_text()
 
     def _load_catmas(self) -> pd.DataFrame:
-        csv_path = self.base_dir / "Retrato do Catmas - Fevereiro25 - v3.xlsx - Geral.csv"
-        df = pd.read_csv(csv_path, sep=None, engine="python")
+        csv_url = "https://docs.google.com/spreadsheets/d/1piA8VQoSYKq7vi-ILmS1my50TdxhaFXL/export?format=csv"
+        df = pd.read_csv(csv_url)
         df.columns = [str(column).strip() for column in df.columns]
         df = df.fillna("")
         df["_status"] = df["Situação do Item"].astype(str).str.upper()
