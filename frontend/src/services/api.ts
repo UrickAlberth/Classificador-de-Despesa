@@ -1,7 +1,8 @@
 import type { AnalysisRequest, AnalysisResponse } from "../types";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000";
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ??
+  (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
 
 export async function healthcheck(): Promise<boolean> {
   const response = await fetch(`${API_BASE_URL}/health`);
