@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pandas
+openpyxl
+pypdf
+beautifulsoup4
+google-genai
+python-dotenv
