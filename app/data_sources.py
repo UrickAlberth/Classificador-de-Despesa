@@ -30,6 +30,19 @@ def _score_text(query: str, target: str) -> float:
     return overlap / max(len(query_tokens), 1)
 
 
+def _normalize_digits(value: str) -> str:
+    return re.sub(r"\D+", "", str(value))
+
+
+def _detect_query_kind(query: str) -> str | None:
+    query_lower = query.lower()
+    if any(token in query_lower for token in ["serviço", "servico", "prestação", "prestacao"]):
+        return "SERVICO"
+    if "material" in query_lower:
+        return "MATERIAL"
+    return None
+
+
 @dataclass
 class OfficialTables:
     tabela_3: pd.DataFrame
@@ -83,6 +96,18 @@ class KnowledgeRepository:
             + " "
             + df["Complementação da Especificação"].astype(str)
         ).str.lower()
+        df["_codigo_limpo"] = df["Código Material ou Serviço"].astype(str).apply(_normalize_digits)
+
+        tipo_col = (
+            df["Descrição Material ou Serviço"].astype(str)
+            + " "
+            + df["Item"].astype(str)
+            + " "
+            + df["Complementação da Especificação"].astype(str)
+        ).str.lower()
+        df["_tipo_item"] = ""
+        df.loc[tipo_col.str.contains(r"servi[çc]o|prestac", regex=True, na=False), "_tipo_item"] = "SERVICO"
+        df.loc[(df["_tipo_item"] == "") & tipo_col.str.contains("material", regex=False, na=False), "_tipo_item"] = "MATERIAL"
         return df
 
     def _build_google_sheets_csv_url(self, sheet_url: str) -> str:
@@ -159,14 +184,33 @@ class KnowledgeRepository:
     def search_catmas(self, query: str, max_results: int = 15, only_active: bool = True) -> List[Dict[str, str]]:
         candidates: List[Dict[str, str]] = []
         token_list = _tokenize(query)[:8]
+        text_tokens = [token for token in token_list if not token.isdigit()]
+        query_digits = _normalize_digits(query)
+        query_kind = _detect_query_kind(query)
+        code_locked = False
 
         df = self.catmas_df
         if only_active:
             df = df[df["_status"].str.contains("ATIVO", na=False)]
 
-        if token_list:
-            mask = df["_search_text"].str.contains(token_list[0], regex=False, na=False)
-            for token in token_list[1:]:
+        if query_kind:
+            kind_df = df[df["_tipo_item"] == query_kind]
+            if not kind_df.empty:
+                df = kind_df
+
+        if query_digits and len(query_digits) >= 4:
+            exact = df[df["_codigo_limpo"] == query_digits]
+            if not exact.empty:
+                df = exact
+                code_locked = True
+            else:
+                partial = df[df["_codigo_limpo"].str.contains(query_digits, regex=False, na=False)]
+                if not partial.empty:
+                    df = partial
+
+        if text_tokens and not code_locked:
+            mask = df["_search_text"].str.contains(text_tokens[0], regex=False, na=False)
+            for token in text_tokens[1:]:
                 mask = mask | df["_search_text"].str.contains(token, regex=False, na=False)
             df = df[mask]
 
@@ -178,6 +222,20 @@ class KnowledgeRepository:
                 f"{row.get('Descrição Material ou Serviço', '')} {row.get('Item', '')} {row.get('Complementação da Especificação', '')}"
             )
             score = _score_text(query, description)
+            row_code = _normalize_digits(row.get("Código Material ou Serviço", ""))
+
+            if query_digits and row_code:
+                if row_code == query_digits:
+                    score += 2.0
+                elif row_code.startswith(query_digits) or query_digits.startswith(row_code):
+                    score += 1.2
+                elif query_digits in row_code:
+                    score += 0.8
+
+            row_kind = str(row.get("_tipo_item", ""))
+            if query_kind and row_kind == query_kind:
+                score += 0.25
+
             if score <= 0:
                 continue
             candidates.append(
@@ -185,6 +243,7 @@ class KnowledgeRepository:
                     "codigo_material_servico": str(row.get("Código Material ou Serviço", "")).strip(),
                     "descricao_material_servico": str(row.get("Descrição Material ou Serviço", "")).strip(),
                     "item": str(row.get("Item", "")).strip(),
+                    "tipo_item": row_kind,
                     "situacao_item": str(row.get("Situação do Item", "")).strip(),
                     "linhas_fornecimento": str(row.get("Linhas de Fornecimento", "")).strip(),
                     "natureza_despesa": str(row.get("Natureza da Despesa", "")).strip(),

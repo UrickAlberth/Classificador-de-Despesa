@@ -55,6 +55,8 @@ Regras obrigatórias:
 3) Permitir múltiplas classificações quando aplicável.
 4) Considerar conformidade com Lei 14.133/2021 e Resolução CNJ 370/2021.
 5) Sinalizar riscos tributários e compatibilidade CNAE x objeto.
+6) Diferenciar claramente se o item é MATERIAL ou SERVIÇO e justificar a escolha.
+7) Informar explicitamente o número do CATMAS selecionado no campo item_catmas_codigo, sem texto adicional.
 
 Entrada:
 - Finalidade: {finalidade}
