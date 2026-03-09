@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import List
 
+from pydantic import ValidationError
+
 from .data_sources import KnowledgeRepository
 from .external_integrations import consultar_cnae_ibge, consultar_codigo_tributacao_nacional
 from .gemini_client import GeminiClassifier
@@ -29,6 +31,34 @@ class ExpenseClassificationService:
                 return "Compatível (correspondência aproximada entre CNAE da empresa e CNAE sugerido pelo IBGE)."
 
         return "Potencial incompatibilidade entre CNAE informado e objeto contratado."
+
+    def _build_safe_suggestion(self, ai_item: dict, context_payload: dict) -> ClassificationSuggestion:
+        catmas = context_payload.get("catmas_candidates", [])
+        t3 = context_payload.get("tabela_3", [])
+        t4 = context_payload.get("tabela_4", [])
+        t5 = context_payload.get("tabela_5", [])
+        t7 = context_payload.get("tabela_7", [])
+        t8 = context_payload.get("tabela_8", [])
+        trib = context_payload.get("tributacao", [])
+
+        first_catmas = catmas[0] if catmas else {}
+
+        defaults = {
+            "item_catmas": first_catmas.get("item", "Sem correspondencia CATMAS"),
+            "item_catmas_codigo": first_catmas.get("codigo_material_servico", "N/A"),
+            "item_catmas_status": first_catmas.get("situacao_item", "N/A"),
+            "item_catmas_linhas_fornecimento": first_catmas.get("linhas_fornecimento", "N/A"),
+            "categoria_economica_tabela_3": (t3[0].get("valor", "N/A") if t3 else "N/A"),
+            "grupo_natureza_despesa_tabela_4": (t4[0].get("valor", "N/A") if t4 else "N/A"),
+            "modalidade_aplicacao_tabela_5": (t5[0].get("valor", "N/A") if t5 else "N/A"),
+            "elemento_despesa_tabela_7": (t7[0].get("valor", "N/A") if t7 else "N/A"),
+            "item_despesa_tabela_8": (t8[0].get("valor", "N/A") if t8 else "N/A"),
+            "codigo_tributacao_nacional": (trib[0].get("codigo", "N/A") if trib else "N/A"),
+            "justificativa": "Sugestao normalizada automaticamente devido a retorno parcial da IA.",
+        }
+
+        normalized = {**defaults, **(ai_item or {})}
+        return ClassificationSuggestion(**normalized)
 
     def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
         search_query = f"{request.finalidade} {request.objeto_contratacao}"
@@ -61,10 +91,13 @@ class ExpenseClassificationService:
         raw_sugestoes = ai_output.get("sugestoes", [])
         sugestoes: List[ClassificationSuggestion] = []
         for item in raw_sugestoes[: request.max_sugestoes]:
-            sugestoes.append(ClassificationSuggestion(**item))
+            try:
+                sugestoes.append(ClassificationSuggestion(**item))
+            except ValidationError:
+                sugestoes.append(self._build_safe_suggestion(item, context_payload))
 
         if not sugestoes:
-            raise ValueError("A IA não retornou sugestões válidas.")
+            sugestoes.append(self._build_safe_suggestion({}, context_payload))
 
         compatibilidade = ai_output.get("compatibilidade_cnae") or self._avaliar_compatibilidade_cnae(
             request.cnae_empresa, cnaes_ibge

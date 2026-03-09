@@ -42,6 +42,16 @@ def healthcheck():
     return {"status": "ok"}
 
 
+@app.get("/")
+def root():
+    return {
+        "service": "TJMG Classificador de Despesa API",
+        "status": "ok",
+        "health": "/health",
+        "analisar": "/analisar",
+    }
+
+
 @app.post("/analisar", response_model=AnalysisResponse)
 def analisar_despesa(payload: AnalysisRequest):
     try:
