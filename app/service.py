@@ -57,7 +57,18 @@ class ExpenseClassificationService:
             "justificativa": "Sugestao normalizada automaticamente devido a retorno parcial da IA.",
         }
 
-        normalized = {**defaults, **(ai_item or {})}
+        raw_item = ai_item or {}
+
+        normalized: dict[str, str] = {}
+        for field_name, default_value in defaults.items():
+            incoming = raw_item.get(field_name, default_value)
+            if incoming is None:
+                normalized[field_name] = str(default_value)
+                continue
+
+            text_value = str(incoming).strip()
+            normalized[field_name] = text_value if text_value else str(default_value)
+
         return ClassificationSuggestion(**normalized)
 
     def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
