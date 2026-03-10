@@ -152,6 +152,10 @@ class ExpenseClassificationService:
         )
 
         alertas = list(ai_output.get("alertas", []))
+        if self.repo.catmas_df.empty:
+            alertas.append(
+                "Base CATMAS indisponivel no momento (Google Sheets/CSV). Resultado retornado com dados parciais."
+            )
         if any("SUSPENSO" in (c.get("situacao_item", "").upper()) for c in catmas_candidates[:3]):
             alertas.append("Há item CATMAS suspenso entre os candidatos de alta relevância.")
         if "incompatibilidade" in compatibilidade.lower():

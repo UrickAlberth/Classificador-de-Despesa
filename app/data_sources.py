@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
@@ -76,15 +77,25 @@ class KnowledgeRepository:
 
         if df is None:
             if not csv_path.exists():
+                warning_msg = "CATMAS indisponivel: usando base vazia temporariamente."
                 if load_error is not None:
-                    raise FileNotFoundError(
-                        "Nao foi possivel carregar CATMAS via Google Sheets e o CSV local nao foi encontrado. "
-                        f"Erro remoto: {load_error}"
-                    )
-                raise FileNotFoundError(
-                    "CATMAS nao encontrado. Configure CATMAS_GOOGLE_SHEETS_URL ou disponibilize o CSV local."
-                )
+                    warning_msg += f" Erro remoto: {load_error}"
+                warnings.warn(warning_msg, RuntimeWarning)
+                return self._empty_catmas_df()
             df = pd.read_csv(csv_path, sep=None, engine="python")
+
+        required_columns = [
+            "Código Material ou Serviço",
+            "Descrição Material ou Serviço",
+            "Item",
+            "Complementação da Especificação",
+            "Situação do Item",
+            "Linhas de Fornecimento",
+            "Natureza da Despesa",
+        ]
+        for column in required_columns:
+            if column not in df.columns:
+                df[column] = ""
 
         df.columns = [str(column).strip() for column in df.columns]
         df = df.fillna("")
@@ -108,6 +119,24 @@ class KnowledgeRepository:
         df["_tipo_item"] = ""
         df.loc[tipo_col.str.contains(r"servi[çc]o|prestac", regex=True, na=False), "_tipo_item"] = "SERVICO"
         df.loc[(df["_tipo_item"] == "") & tipo_col.str.contains("material", regex=False, na=False), "_tipo_item"] = "MATERIAL"
+        return df
+
+    def _empty_catmas_df(self) -> pd.DataFrame:
+        df = pd.DataFrame(
+            columns=[
+                "Código Material ou Serviço",
+                "Descrição Material ou Serviço",
+                "Item",
+                "Complementação da Especificação",
+                "Situação do Item",
+                "Linhas de Fornecimento",
+                "Natureza da Despesa",
+            ]
+        )
+        df["_status"] = ""
+        df["_search_text"] = ""
+        df["_codigo_limpo"] = ""
+        df["_tipo_item"] = ""
         return df
 
     def _build_google_sheets_csv_url(self, sheet_url: str) -> str:
