@@ -57,6 +57,8 @@ Regras obrigatórias:
 5) Sinalizar riscos tributários e compatibilidade CNAE x objeto.
 6) Diferenciar claramente se o item é MATERIAL ou SERVIÇO e justificar a escolha.
 7) Informar explicitamente o número do CATMAS selecionado no campo item_catmas_codigo, sem texto adicional.
+8) NUNCA inventar código CATMAS. Use somente código existente nos catmas_candidates fornecidos.
+9) Se não houver correspondência exata, selecionar os itens CATMAS reais mais próximos da busca e informar isso na justificativa.
 
 Entrada:
 - Finalidade: {finalidade}

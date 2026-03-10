@@ -71,6 +71,40 @@ class ExpenseClassificationService:
 
         return ClassificationSuggestion(**normalized)
 
+    def _enforce_existing_catmas(
+        self,
+        suggestion: ClassificationSuggestion,
+        search_query: str,
+        catmas_candidates: List[dict],
+    ) -> ClassificationSuggestion:
+        existing = self.repo.get_catmas_by_code(suggestion.item_catmas_codigo, only_active=True)
+        if existing:
+            return suggestion
+
+        fallback_candidates = catmas_candidates or self.repo.search_catmas(search_query, max_results=10, only_active=True)
+        if not fallback_candidates:
+            fallback_candidates = self.repo.search_catmas(search_query, max_results=10, only_active=False)
+
+        if not fallback_candidates:
+            return suggestion
+
+        replacement = fallback_candidates[0]
+        return suggestion.model_copy(
+            update={
+                "item_catmas": replacement.get("item", suggestion.item_catmas),
+                "item_catmas_codigo": replacement.get("codigo_material_servico", suggestion.item_catmas_codigo),
+                "item_catmas_status": replacement.get("situacao_item", suggestion.item_catmas_status),
+                "item_catmas_linhas_fornecimento": replacement.get(
+                    "linhas_fornecimento", suggestion.item_catmas_linhas_fornecimento
+                ),
+                "justificativa": (
+                    suggestion.justificativa
+                    + " Codigo CATMAS retornado pela IA nao existe na base oficial ativa;"
+                    + " foi substituido automaticamente por item real mais proximo."
+                ),
+            }
+        )
+
     def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
         search_query = f"{request.finalidade} {request.objeto_contratacao}"
         catmas_candidates = self.repo.search_catmas(search_query, max_results=20, only_active=True)
@@ -103,12 +137,15 @@ class ExpenseClassificationService:
         sugestoes: List[ClassificationSuggestion] = []
         for item in raw_sugestoes[: request.max_sugestoes]:
             try:
-                sugestoes.append(ClassificationSuggestion(**item))
+                sugestao = ClassificationSuggestion(**item)
             except ValidationError:
-                sugestoes.append(self._build_safe_suggestion(item, context_payload))
+                sugestao = self._build_safe_suggestion(item, context_payload)
+
+            sugestoes.append(self._enforce_existing_catmas(sugestao, search_query, catmas_candidates))
 
         if not sugestoes:
-            sugestoes.append(self._build_safe_suggestion({}, context_payload))
+            sugestao_fallback = self._build_safe_suggestion({}, context_payload)
+            sugestoes.append(self._enforce_existing_catmas(sugestao_fallback, search_query, catmas_candidates))
 
         compatibilidade = ai_output.get("compatibilidade_cnae") or self._avaliar_compatibilidade_cnae(
             request.cnae_empresa, cnaes_ibge

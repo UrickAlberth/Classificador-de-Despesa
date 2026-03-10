@@ -181,6 +181,35 @@ class KnowledgeRepository:
 
         return "\n\n".join(chunks)
 
+    def _row_to_candidate(self, row: pd.Series, score: float) -> Dict[str, str]:
+        row_kind = str(row.get("_tipo_item", ""))
+        return {
+            "codigo_material_servico": str(row.get("Código Material ou Serviço", "")).strip(),
+            "descricao_material_servico": str(row.get("Descrição Material ou Serviço", "")).strip(),
+            "item": str(row.get("Item", "")).strip(),
+            "tipo_item": row_kind,
+            "situacao_item": str(row.get("Situação do Item", "")).strip(),
+            "linhas_fornecimento": str(row.get("Linhas de Fornecimento", "")).strip(),
+            "natureza_despesa": str(row.get("Natureza da Despesa", "")).strip(),
+            "score": f"{score:.4f}",
+        }
+
+    def get_catmas_by_code(self, code: str, only_active: bool = True) -> Dict[str, str] | None:
+        clean_code = _normalize_digits(code)
+        if not clean_code:
+            return None
+
+        df = self.catmas_df
+        if only_active:
+            df = df[df["_status"].str.contains("ATIVO", na=False)]
+
+        exact = df[df["_codigo_limpo"] == clean_code]
+        if exact.empty:
+            return None
+
+        row = exact.iloc[0]
+        return self._row_to_candidate(row, score=1.0)
+
     def search_catmas(self, query: str, max_results: int = 15, only_active: bool = True) -> List[Dict[str, str]]:
         candidates: List[Dict[str, str]] = []
         token_list = _tokenize(query)[:8]
@@ -208,11 +237,16 @@ class KnowledgeRepository:
                 if not partial.empty:
                     df = partial
 
+        base_df = df.copy()
+
         if text_tokens and not code_locked:
             mask = df["_search_text"].str.contains(text_tokens[0], regex=False, na=False)
             for token in text_tokens[1:]:
                 mask = mask | df["_search_text"].str.contains(token, regex=False, na=False)
             df = df[mask]
+
+        if df.empty:
+            df = base_df
 
         if df.empty:
             return []
@@ -223,6 +257,7 @@ class KnowledgeRepository:
             )
             score = _score_text(query, description)
             row_code = _normalize_digits(row.get("Código Material ou Serviço", ""))
+            row_kind = str(row.get("_tipo_item", ""))
 
             if query_digits and row_code:
                 if row_code == query_digits:
@@ -232,24 +267,20 @@ class KnowledgeRepository:
                 elif query_digits in row_code:
                     score += 0.8
 
-            row_kind = str(row.get("_tipo_item", ""))
             if query_kind and row_kind == query_kind:
                 score += 0.25
 
-            if score <= 0:
+            if score <= 0 and not query_digits:
                 continue
-            candidates.append(
-                {
-                    "codigo_material_servico": str(row.get("Código Material ou Serviço", "")).strip(),
-                    "descricao_material_servico": str(row.get("Descrição Material ou Serviço", "")).strip(),
-                    "item": str(row.get("Item", "")).strip(),
-                    "tipo_item": row_kind,
-                    "situacao_item": str(row.get("Situação do Item", "")).strip(),
-                    "linhas_fornecimento": str(row.get("Linhas de Fornecimento", "")).strip(),
-                    "natureza_despesa": str(row.get("Natureza da Despesa", "")).strip(),
-                    "score": f"{score:.4f}",
-                }
-            )
+            candidates.append(self._row_to_candidate(row, score=score))
+
+        if not candidates:
+            for _, row in base_df.head(1200).iterrows():
+                description = _normalize_spaces(
+                    f"{row.get('Descrição Material ou Serviço', '')} {row.get('Item', '')} {row.get('Complementação da Especificação', '')}"
+                )
+                score = _score_text(query, description)
+                candidates.append(self._row_to_candidate(row, score=score))
 
         candidates.sort(key=lambda item: float(item["score"]), reverse=True)
         return candidates[:max_results]
