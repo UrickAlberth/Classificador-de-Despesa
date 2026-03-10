@@ -35,6 +35,26 @@ def _normalize_digits(value: str) -> str:
     return re.sub(r"\D+", "", str(value))
 
 
+def _split_code_description(row_values: List[str]) -> tuple[str, str]:
+    non_empty = [_normalize_spaces(value) for value in row_values if _normalize_spaces(value)]
+    if not non_empty:
+        return "N/A", "N/A"
+
+    code_candidate = non_empty[0]
+    description_parts = non_empty[1:]
+
+    if not re.search(r"\d", code_candidate):
+        tokens = code_candidate.split(" ", 1)
+        if len(tokens) == 2 and re.search(r"\d", tokens[0]):
+            code_candidate, first_description = tokens[0], tokens[1]
+            description_parts = [first_description, *description_parts]
+
+    if not description_parts:
+        return code_candidate, code_candidate
+
+    return code_candidate, _normalize_spaces(" ".join(description_parts))
+
+
 def _detect_query_kind(query: str) -> str | None:
     query_lower = query.lower()
     if any(token in query_lower for token in ["serviço", "servico", "prestação", "prestacao"]):
@@ -317,11 +337,20 @@ class KnowledgeRepository:
     def rank_table_entries(self, table_df: pd.DataFrame, query: str, max_results: int = 8) -> List[Dict[str, str]]:
         entries: List[Dict[str, str]] = []
         for _, row in table_df.iterrows():
-            joined = _normalize_spaces(" ".join(str(v) for v in row.tolist()))
+            values = [str(v) for v in row.tolist()]
+            joined = _normalize_spaces(" ".join(values))
             score = _score_text(query, joined)
             if score <= 0:
                 continue
-            entries.append({"valor": joined, "score": f"{score:.4f}"})
+            codigo, descricao = _split_code_description(values)
+            entries.append(
+                {
+                    "valor": joined,
+                    "codigo": codigo,
+                    "descricao": descricao,
+                    "score": f"{score:.4f}",
+                }
+            )
 
         entries.sort(key=lambda item: float(item["score"]), reverse=True)
         return entries[:max_results]

@@ -15,17 +15,36 @@ class AnalysisRequest(BaseModel):
     max_sugestoes: int = Field(3, ge=1, le=10)
 
 
+class SimilarCatmasItem(BaseModel):
+    codigo: str
+    descricao: str
+    situacao: str
+    grau_similaridade: float
+
+
 class ClassificationSuggestion(BaseModel):
     item_catmas: str
     item_catmas_codigo: str
     item_catmas_status: str
     item_catmas_linhas_fornecimento: str
-    categoria_economica_tabela_3: str
-    grupo_natureza_despesa_tabela_4: str
-    modalidade_aplicacao_tabela_5: str
-    elemento_despesa_tabela_7: str
-    item_despesa_tabela_8: str
+    correspondencia_exata_catmas: bool
+    grau_similaridade_catmas: float
+    categoria_economica_tabela_3_codigo: str
+    categoria_economica_tabela_3_descricao: str
+    grupo_natureza_despesa_tabela_4_codigo: str
+    grupo_natureza_despesa_tabela_4_descricao: str
+    modalidade_aplicacao_tabela_5_codigo: str
+    modalidade_aplicacao_tabela_5_descricao: str
+    elemento_despesa_tabela_7_codigo: str
+    elemento_despesa_tabela_7_descricao: str
+    item_despesa_tabela_8_codigo: str
+    item_despesa_tabela_8_descricao: str
     codigo_tributacao_nacional: str
+    codigo_tributacao_nacional_descricao: str
+    linha_fornecimento_compativel: str
+    requer_validacao_humana: bool
+    motivo_validacao_humana: str
+    itens_semelhantes_catmas: List[SimilarCatmasItem]
     justificativa: str
 
 
@@ -34,5 +53,6 @@ class AnalysisResponse(BaseModel):
     cruzamento_obrigatorio_realizado: bool
     compatibilidade_cnae: str
     alertas: List[str]
+    observacoes_tecnicas: List[str]
     alinhamento_normativo: List[str]
     fontes_consultadas: List[str]

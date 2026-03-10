@@ -6,10 +6,10 @@ from typing import List
 
 from pydantic import ValidationError
 
-from .data_sources import KnowledgeRepository
+from .data_sources import KnowledgeRepository, _normalize_digits, _score_text
 from .external_integrations import consultar_cnae_ibge, consultar_codigo_tributacao_nacional
 from .gemini_client import GeminiClassifier
-from .schemas import AnalysisRequest, AnalysisResponse, ClassificationSuggestion
+from .schemas import AnalysisRequest, AnalysisResponse, ClassificationSuggestion, SimilarCatmasItem
 
 
 class ExpenseClassificationService:
@@ -32,6 +32,59 @@ class ExpenseClassificationService:
 
         return "Potencial incompatibilidade entre CNAE informado e objeto contratado."
 
+    def _to_bool(self, value: object, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "sim", "yes", "1"}:
+                return True
+            if lowered in {"false", "nao", "não", "no", "0"}:
+                return False
+        return default
+
+    def _to_float(self, value: object, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _table_field(self, table_data: List[dict], index: int = 0) -> tuple[str, str]:
+        if len(table_data) <= index:
+            return "N/A", "N/A"
+        row = table_data[index]
+        return str(row.get("codigo", "N/A")), str(row.get("descricao", "N/A"))
+
+    def _build_similar_items(self, catmas_candidates: List[dict], limit: int = 5) -> List[SimilarCatmasItem]:
+        items: List[SimilarCatmasItem] = []
+        for candidate in catmas_candidates[:limit]:
+            items.append(
+                SimilarCatmasItem(
+                    codigo=str(candidate.get("codigo_material_servico", "")).strip(),
+                    descricao=str(candidate.get("item", "")).strip(),
+                    situacao=str(candidate.get("situacao_item", "")).strip(),
+                    grau_similaridade=round(self._to_float(candidate.get("score", 0), 0.0), 4),
+                )
+            )
+        return items
+
+    def _is_exact_catmas_match(self, search_query: str, candidate: dict) -> bool:
+        candidate_score = self._to_float(candidate.get("score", 0), 0.0)
+        query_digits = _normalize_digits(search_query)
+        candidate_code = _normalize_digits(str(candidate.get("codigo_material_servico", "")))
+        if query_digits and candidate_code and candidate_code == query_digits:
+            return True
+        return candidate_score >= 0.9
+
+    def _avaliar_linha_fornecimento(self, search_query: str, linhas_fornecimento: str) -> str:
+        if not linhas_fornecimento or linhas_fornecimento.strip().upper() == "N/A":
+            return "Nao foi possivel validar linha de fornecimento automaticamente."
+
+        score = _score_text(search_query, linhas_fornecimento)
+        if score >= 0.2:
+            return "Compativel"
+        return "Possivel incompatibilidade entre objeto contratado e linha de fornecimento"
+
     def _build_safe_suggestion(self, ai_item: dict, context_payload: dict) -> ClassificationSuggestion:
         catmas = context_payload.get("catmas_candidates", [])
         t3 = context_payload.get("tabela_3", [])
@@ -42,32 +95,68 @@ class ExpenseClassificationService:
         trib = context_payload.get("tributacao", [])
 
         first_catmas = catmas[0] if catmas else {}
+        t3_code, t3_desc = self._table_field(t3)
+        t4_code, t4_desc = self._table_field(t4)
+        t5_code, t5_desc = self._table_field(t5)
+        t7_code, t7_desc = self._table_field(t7)
+        t8_code, t8_desc = self._table_field(t8)
+        similar_items = self._build_similar_items(catmas)
+        default_exact_match = bool(first_catmas) and self._is_exact_catmas_match(
+            context_payload.get("search_query", ""), first_catmas
+        )
+        default_similarity = self._to_float(first_catmas.get("score", 0), 0.0) if first_catmas else 0.0
+        default_linha = self._avaliar_linha_fornecimento(
+            context_payload.get("search_query", ""),
+            str(first_catmas.get("linhas_fornecimento", "N/A")),
+        )
+        default_motivo = (
+            "Classificacao com correspondencia exata CATMAS." if default_exact_match else "Sem correspondencia exata CATMAS; validar manualmente."
+        )
 
         defaults = {
             "item_catmas": first_catmas.get("item", "Sem correspondencia CATMAS"),
             "item_catmas_codigo": first_catmas.get("codigo_material_servico", "N/A"),
             "item_catmas_status": first_catmas.get("situacao_item", "N/A"),
             "item_catmas_linhas_fornecimento": first_catmas.get("linhas_fornecimento", "N/A"),
-            "categoria_economica_tabela_3": (t3[0].get("valor", "N/A") if t3 else "N/A"),
-            "grupo_natureza_despesa_tabela_4": (t4[0].get("valor", "N/A") if t4 else "N/A"),
-            "modalidade_aplicacao_tabela_5": (t5[0].get("valor", "N/A") if t5 else "N/A"),
-            "elemento_despesa_tabela_7": (t7[0].get("valor", "N/A") if t7 else "N/A"),
-            "item_despesa_tabela_8": (t8[0].get("valor", "N/A") if t8 else "N/A"),
+            "correspondencia_exata_catmas": default_exact_match,
+            "grau_similaridade_catmas": default_similarity,
+            "categoria_economica_tabela_3_codigo": t3_code,
+            "categoria_economica_tabela_3_descricao": t3_desc,
+            "grupo_natureza_despesa_tabela_4_codigo": t4_code,
+            "grupo_natureza_despesa_tabela_4_descricao": t4_desc,
+            "modalidade_aplicacao_tabela_5_codigo": t5_code,
+            "modalidade_aplicacao_tabela_5_descricao": t5_desc,
+            "elemento_despesa_tabela_7_codigo": t7_code,
+            "elemento_despesa_tabela_7_descricao": t7_desc,
+            "item_despesa_tabela_8_codigo": t8_code,
+            "item_despesa_tabela_8_descricao": t8_desc,
             "codigo_tributacao_nacional": (trib[0].get("codigo", "N/A") if trib else "N/A"),
+            "codigo_tributacao_nacional_descricao": (trib[0].get("descricao", "N/A") if trib else "N/A"),
+            "linha_fornecimento_compativel": default_linha,
+            "requer_validacao_humana": not default_exact_match,
+            "motivo_validacao_humana": default_motivo,
+            "itens_semelhantes_catmas": [item.model_dump() for item in similar_items],
             "justificativa": "Sugestao normalizada automaticamente devido a retorno parcial da IA.",
         }
 
         raw_item = ai_item or {}
 
-        normalized: dict[str, str] = {}
+        normalized: dict[str, object] = {}
         for field_name, default_value in defaults.items():
             incoming = raw_item.get(field_name, default_value)
             if incoming is None:
-                normalized[field_name] = str(default_value)
+                normalized[field_name] = default_value
                 continue
 
-            text_value = str(incoming).strip()
-            normalized[field_name] = text_value if text_value else str(default_value)
+            if isinstance(default_value, bool):
+                normalized[field_name] = self._to_bool(incoming, default_value)
+            elif isinstance(default_value, float):
+                normalized[field_name] = round(self._to_float(incoming, default_value), 4)
+            elif isinstance(default_value, list):
+                normalized[field_name] = incoming if isinstance(incoming, list) and incoming else default_value
+            else:
+                text_value = str(incoming).strip()
+                normalized[field_name] = text_value if text_value else str(default_value)
 
         return ClassificationSuggestion(**normalized)
 
@@ -89,6 +178,8 @@ class ExpenseClassificationService:
             return suggestion
 
         replacement = fallback_candidates[0]
+        replacement_score = round(self._to_float(replacement.get("score", 0), 0.0), 4)
+        exact_match = self._is_exact_catmas_match(search_query, replacement)
         return suggestion.model_copy(
             update={
                 "item_catmas": replacement.get("item", suggestion.item_catmas),
@@ -97,6 +188,19 @@ class ExpenseClassificationService:
                 "item_catmas_linhas_fornecimento": replacement.get(
                     "linhas_fornecimento", suggestion.item_catmas_linhas_fornecimento
                 ),
+                "correspondencia_exata_catmas": exact_match,
+                "grau_similaridade_catmas": replacement_score,
+                "linha_fornecimento_compativel": self._avaliar_linha_fornecimento(
+                    search_query,
+                    str(replacement.get("linhas_fornecimento", suggestion.item_catmas_linhas_fornecimento)),
+                ),
+                "requer_validacao_humana": not exact_match,
+                "motivo_validacao_humana": (
+                    "Classificacao com correspondencia exata CATMAS."
+                    if exact_match
+                    else "Sem correspondencia exata CATMAS; necessario validar manualmente antes da contratacao."
+                ),
+                "itens_semelhantes_catmas": self._build_similar_items(fallback_candidates),
                 "justificativa": (
                     suggestion.justificativa
                     + " Codigo CATMAS retornado pela IA nao existe na base oficial ativa;"
@@ -120,6 +224,7 @@ class ExpenseClassificationService:
 
         context_payload = {
             "catmas_candidates": catmas_candidates[: min(12, request.max_sugestoes * 4)],
+            "search_query": search_query,
             "tabela_3": tabela_3,
             "tabela_4": tabela_4,
             "tabela_5": tabela_5,
@@ -135,7 +240,8 @@ class ExpenseClassificationService:
 
         raw_sugestoes = ai_output.get("sugestoes", [])
         sugestoes: List[ClassificationSuggestion] = []
-        for item in raw_sugestoes[: request.max_sugestoes]:
+        total_sugestoes = request.max_sugestoes if request.permitir_multiplas_classificacoes else 1
+        for item in raw_sugestoes[:total_sugestoes]:
             try:
                 sugestao = ClassificationSuggestion(**item)
             except ValidationError:
@@ -147,19 +253,62 @@ class ExpenseClassificationService:
             sugestao_fallback = self._build_safe_suggestion({}, context_payload)
             sugestoes.append(self._enforce_existing_catmas(sugestao_fallback, search_query, catmas_candidates))
 
+        if not request.permitir_multiplas_classificacoes:
+            sugestoes = sugestoes[:1]
+
+        for index, sugestao in enumerate(sugestoes):
+            if sugestao.grau_similaridade_catmas <= 0:
+                score = self._to_float(catmas_candidates[index].get("score", 0), 0.0) if len(catmas_candidates) > index else 0.0
+                sugestoes[index] = sugestao.model_copy(update={"grau_similaridade_catmas": round(score, 4)})
+
         compatibilidade = ai_output.get("compatibilidade_cnae") or self._avaliar_compatibilidade_cnae(
             request.cnae_empresa, cnaes_ibge
         )
 
         alertas = list(ai_output.get("alertas", []))
+        observacoes_tecnicas: List[str] = []
         if self.repo.catmas_df.empty:
             alertas.append(
                 "Base CATMAS indisponivel no momento (Google Sheets/CSV). Resultado retornado com dados parciais."
             )
-        if any("SUSPENSO" in (c.get("situacao_item", "").upper()) for c in catmas_candidates[:3]):
-            alertas.append("Há item CATMAS suspenso entre os candidatos de alta relevância.")
+        if any("SUSPENSO" in (c.get("situacao_item", "").upper()) for c in catmas_candidates[:5]):
+            alertas.append("Ha item CATMAS suspenso entre os candidatos de alta relevancia.")
+        if any("INATIVO" in (c.get("situacao_item", "").upper()) for c in catmas_candidates[:5]):
+            alertas.append("Ha item CATMAS inativo entre os candidatos de alta relevancia.")
         if "incompatibilidade" in compatibilidade.lower():
-            alertas.append("Inconsistência tributária potencial com risco de responsabilização solidária.")
+            alertas.append("Alerta de risco fiscal ou orcamentario: incompatibilidade CNAE x servico.")
+        if external_enabled and request.cnpj and not request.cnae_empresa:
+            alertas.append("CNPJ informado sem CNAE da empresa. Informe CNAE para validacao completa de compatibilidade.")
+
+        if len(catmas_candidates) > 1:
+            top_score = self._to_float(catmas_candidates[0].get("score", 0), 0.0)
+            second_score = self._to_float(catmas_candidates[1].get("score", 0), 0.0)
+            if abs(top_score - second_score) <= 0.08:
+                alertas.append("Ambiguidade detectada entre itens CATMAS de maior relevancia; revise alternativas antes da decisao final.")
+
+        for sugestao in sugestoes:
+            if sugestao.item_catmas_status.upper() in {"SUSPENSO", "INATIVO"}:
+                alertas.append(
+                    f"Item CATMAS selecionado com situacao {sugestao.item_catmas_status}. Necessaria revisao antes da contratacao."
+                )
+            if not sugestao.correspondencia_exata_catmas:
+                alertas.append("Nao foi encontrada correspondencia exata no CATMAS para ao menos uma sugestao.")
+                observacoes_tecnicas.append(
+                    "Foram apresentados itens semelhantes com grau de similaridade e recomendacao de validacao humana."
+                )
+            if "incompatibilidade" in sugestao.linha_fornecimento_compativel.lower():
+                alertas.append("Possivel incompatibilidade de linha de fornecimento com o objeto contratado.")
+
+        if not alertas:
+            observacoes_tecnicas.append("Sem inconsistencias criticas detectadas nas validacoes automaticas.")
+
+        observacoes_tecnicas.append("A classificacao cruza finalidade, objeto, CATMAS e tabelas orcamentarias oficiais.")
+        observacoes_tecnicas.append("Nao sao gerados codigos novos: somente codigos presentes em bases oficiais sao aceitos.")
+        if any(not s.correspondencia_exata_catmas for s in sugestoes):
+            observacoes_tecnicas.append("Validacao humana obrigatoria para confirmar item final quando nao ha correspondencia exata.")
+
+        alertas = list(dict.fromkeys(alertas))
+        observacoes_tecnicas = list(dict.fromkeys(observacoes_tecnicas))
 
         fontes = [
             "CATMAS/SIAD (Google Sheets com fallback CSV local)",
@@ -177,6 +326,7 @@ class ExpenseClassificationService:
             cruzamento_obrigatorio_realizado=True,
             compatibilidade_cnae=compatibilidade,
             alertas=alertas,
+            observacoes_tecnicas=observacoes_tecnicas,
             alinhamento_normativo=["Lei 14.133/2021", "Resolução CNJ 370/2021"],
             fontes_consultadas=fontes,
         )

@@ -59,6 +59,9 @@ Regras obrigatórias:
 7) Informar explicitamente o número do CATMAS selecionado no campo item_catmas_codigo, sem texto adicional.
 8) NUNCA inventar código CATMAS. Use somente código existente nos catmas_candidates fornecidos.
 9) Se não houver correspondência exata, selecionar os itens CATMAS reais mais próximos da busca e informar isso na justificativa.
+10) Para cada sugestão, informe grau de similaridade CATMAS e se exige validação humana.
+11) Quando houver ambiguidade, liste itens semelhantes em itens_semelhantes_catmas.
+12) Retorne código e descrição separados para tabelas orçamentárias 3, 4, 5, 7 e 8.
 
 Entrada:
 - Finalidade: {finalidade}
@@ -74,12 +77,31 @@ Retorne SOMENTE JSON no formato:
       "item_catmas_codigo": "",
       "item_catmas_status": "",
       "item_catmas_linhas_fornecimento": "",
-      "categoria_economica_tabela_3": "",
-      "grupo_natureza_despesa_tabela_4": "",
-      "modalidade_aplicacao_tabela_5": "",
-      "elemento_despesa_tabela_7": "",
-      "item_despesa_tabela_8": "",
+            "correspondencia_exata_catmas": true,
+            "grau_similaridade_catmas": 0.0,
+            "categoria_economica_tabela_3_codigo": "",
+            "categoria_economica_tabela_3_descricao": "",
+            "grupo_natureza_despesa_tabela_4_codigo": "",
+            "grupo_natureza_despesa_tabela_4_descricao": "",
+            "modalidade_aplicacao_tabela_5_codigo": "",
+            "modalidade_aplicacao_tabela_5_descricao": "",
+            "elemento_despesa_tabela_7_codigo": "",
+            "elemento_despesa_tabela_7_descricao": "",
+            "item_despesa_tabela_8_codigo": "",
+            "item_despesa_tabela_8_descricao": "",
       "codigo_tributacao_nacional": "",
+            "codigo_tributacao_nacional_descricao": "",
+            "linha_fornecimento_compativel": "",
+            "requer_validacao_humana": false,
+            "motivo_validacao_humana": "",
+            "itens_semelhantes_catmas": [
+                {{
+                    "codigo": "",
+                    "descricao": "",
+                    "situacao": "",
+                    "grau_similaridade": 0.0
+                }}
+            ],
       "justificativa": ""
     }}
   ],
@@ -105,12 +127,32 @@ Retorne SOMENTE JSON no formato:
                     "item_catmas_codigo": first_catmas.get("codigo_material_servico", "N/A"),
                     "item_catmas_status": first_catmas.get("situacao_item", "N/A"),
                     "item_catmas_linhas_fornecimento": first_catmas.get("linhas_fornecimento", "N/A"),
-                    "categoria_economica_tabela_3": (t3[0]["valor"] if t3 else "N/A"),
-                    "grupo_natureza_despesa_tabela_4": (t4[0]["valor"] if t4 else "N/A"),
-                    "modalidade_aplicacao_tabela_5": (t5[0]["valor"] if t5 else "N/A"),
-                    "elemento_despesa_tabela_7": (t7[0]["valor"] if t7 else "N/A"),
-                    "item_despesa_tabela_8": (t8[0]["valor"] if t8 else "N/A"),
+                    "correspondencia_exata_catmas": False,
+                    "grau_similaridade_catmas": float(first_catmas.get("score", 0)) if first_catmas else 0.0,
+                    "categoria_economica_tabela_3_codigo": (t3[0].get("codigo", "N/A") if t3 else "N/A"),
+                    "categoria_economica_tabela_3_descricao": (t3[0].get("descricao", "N/A") if t3 else "N/A"),
+                    "grupo_natureza_despesa_tabela_4_codigo": (t4[0].get("codigo", "N/A") if t4 else "N/A"),
+                    "grupo_natureza_despesa_tabela_4_descricao": (t4[0].get("descricao", "N/A") if t4 else "N/A"),
+                    "modalidade_aplicacao_tabela_5_codigo": (t5[0].get("codigo", "N/A") if t5 else "N/A"),
+                    "modalidade_aplicacao_tabela_5_descricao": (t5[0].get("descricao", "N/A") if t5 else "N/A"),
+                    "elemento_despesa_tabela_7_codigo": (t7[0].get("codigo", "N/A") if t7 else "N/A"),
+                    "elemento_despesa_tabela_7_descricao": (t7[0].get("descricao", "N/A") if t7 else "N/A"),
+                    "item_despesa_tabela_8_codigo": (t8[0].get("codigo", "N/A") if t8 else "N/A"),
+                    "item_despesa_tabela_8_descricao": (t8[0].get("descricao", "N/A") if t8 else "N/A"),
                     "codigo_tributacao_nacional": trib[0].get("codigo", "N/A") if trib else "N/A",
+                    "codigo_tributacao_nacional_descricao": trib[0].get("descricao", "N/A") if trib else "N/A",
+                    "linha_fornecimento_compativel": "Nao avaliado no fallback.",
+                    "requer_validacao_humana": True,
+                    "motivo_validacao_humana": "Fallback deterministico sem confirmacao semantica completa.",
+                    "itens_semelhantes_catmas": [
+                        {
+                            "codigo": item.get("codigo_material_servico", ""),
+                            "descricao": item.get("item", ""),
+                            "situacao": item.get("situacao_item", ""),
+                            "grau_similaridade": float(item.get("score", 0)),
+                        }
+                        for item in catmas[:5]
+                    ],
                     "justificativa": "Sugestão gerada por fallback determinístico por ausência/erro na chamada Gemini.",
                 }
             ],

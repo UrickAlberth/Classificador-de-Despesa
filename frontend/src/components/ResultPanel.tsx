@@ -25,7 +25,7 @@ export function ResultPanel({ result, error }: ResultPanelProps) {
 
           <h3>Sugestões</h3>
           {result.sugestoes.map((sugestao) => (
-            <article key={`${sugestao.item_catmas_codigo}-${sugestao.item_despesa_tabela_8}`} className="suggestion-card">
+            <article key={`${sugestao.item_catmas_codigo}-${sugestao.item_despesa_tabela_8_codigo}`} className="suggestion-card">
               <p>
                 <strong>Item CATMAS:</strong> {sugestao.item_catmas} ({sugestao.item_catmas_codigo})
               </p>
@@ -33,26 +33,56 @@ export function ResultPanel({ result, error }: ResultPanelProps) {
                 <strong>Status CATMAS:</strong> {sugestao.item_catmas_status}
               </p>
               <p>
-                <strong>Tabela 3:</strong> {sugestao.categoria_economica_tabela_3}
+                <strong>Correspondência exata CATMAS:</strong> {sugestao.correspondencia_exata_catmas ? "Sim" : "Não"}
               </p>
               <p>
-                <strong>Tabela 4:</strong> {sugestao.grupo_natureza_despesa_tabela_4}
+                <strong>Grau de similaridade CATMAS:</strong> {sugestao.grau_similaridade_catmas.toFixed(4)}
               </p>
               <p>
-                <strong>Tabela 5:</strong> {sugestao.modalidade_aplicacao_tabela_5}
+                <strong>Validação da linha de fornecimento:</strong> {sugestao.linha_fornecimento_compativel}
               </p>
               <p>
-                <strong>Tabela 7:</strong> {sugestao.elemento_despesa_tabela_7}
+                <strong>Tabela 3:</strong> {sugestao.categoria_economica_tabela_3_codigo} - {sugestao.categoria_economica_tabela_3_descricao}
               </p>
               <p>
-                <strong>Tabela 8:</strong> {sugestao.item_despesa_tabela_8}
+                <strong>Tabela 4:</strong> {sugestao.grupo_natureza_despesa_tabela_4_codigo} - {sugestao.grupo_natureza_despesa_tabela_4_descricao}
               </p>
               <p>
-                <strong>Código de Tributação:</strong> {sugestao.codigo_tributacao_nacional}
+                <strong>Tabela 5:</strong> {sugestao.modalidade_aplicacao_tabela_5_codigo} - {sugestao.modalidade_aplicacao_tabela_5_descricao}
+              </p>
+              <p>
+                <strong>Tabela 7:</strong> {sugestao.elemento_despesa_tabela_7_codigo} - {sugestao.elemento_despesa_tabela_7_descricao}
+              </p>
+              <p>
+                <strong>Tabela 8:</strong> {sugestao.item_despesa_tabela_8_codigo} - {sugestao.item_despesa_tabela_8_descricao}
+              </p>
+              <p>
+                <strong>Código de Tributação:</strong> {sugestao.codigo_tributacao_nacional} - {sugestao.codigo_tributacao_nacional_descricao}
+              </p>
+              <p>
+                <strong>Requer validação humana:</strong> {sugestao.requer_validacao_humana ? "Sim" : "Não"}
+              </p>
+              <p>
+                <strong>Motivo da validação:</strong> {sugestao.motivo_validacao_humana}
               </p>
               <p>
                 <strong>Justificativa:</strong> {sugestao.justificativa}
               </p>
+
+              {sugestao.itens_semelhantes_catmas.length > 0 && (
+                <>
+                  <p>
+                    <strong>Itens semelhantes CATMAS:</strong>
+                  </p>
+                  <ul>
+                    {sugestao.itens_semelhantes_catmas.map((similar) => (
+                      <li key={`${similar.codigo}-${similar.descricao}`}>
+                        {similar.codigo} - {similar.descricao} ({similar.situacao}) | similaridade {similar.grau_similaridade.toFixed(4)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </article>
           ))}
 
@@ -67,6 +97,13 @@ export function ResultPanel({ result, error }: ResultPanelProps) {
           <ul>
             {result.alinhamento_normativo.map((norma) => (
               <li key={norma}>{norma}</li>
+            ))}
+          </ul>
+
+          <h3>Observações técnicas</h3>
+          <ul>
+            {result.observacoes_tecnicas.map((observacao) => (
+              <li key={observacao}>{observacao}</li>
             ))}
           </ul>
 
