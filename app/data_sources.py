@@ -82,7 +82,7 @@ class KnowledgeRepository:
 
     def _load_catmas(self) -> pd.DataFrame:
         default_sheet_url = (
-            "https://docs.google.com/spreadsheets/d/1piA8VQoSYKq7vi-ILmS1my50TdxhaFXL/edit?gid=1011457846#gid=1011457846"
+            "https://docs.google.com/spreadsheets/d/1piA8VQoSYKq7vi-ILmS1my50TdxhaFXL/"
         )
         sheet_url = os.getenv("CATMAS_GOOGLE_SHEETS_URL", default_sheet_url).strip()
         csv_path = self.base_dir / "Retrato do Catmas - Fevereiro25 - v3.xlsx - Geral.csv"
