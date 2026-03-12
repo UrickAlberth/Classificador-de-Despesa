@@ -143,3 +143,72 @@ npm run dev
 - Na Vercel, importe o repositório e configure o **Root Directory** como `frontend`.
 - Adicione a variável de ambiente `VITE_API_BASE_URL` no painel da Vercel.
 - Gere o deploy e valide conectividade com a API no indicador de status da tela inicial.
+
+## Ingestao Vetorial no Azure AI Search (RAG)
+
+Script pronto em `scripts/ingest_catmas_to_azure_search.py` para:
+
+1. Ler CATMAS via Google Sheets (CSV export).
+2. Gerar embeddings com Azure OpenAI (`text-embedding-3-large` ou deployment superior).
+3. Criar indice vetorial no Azure AI Search (se nao existir).
+4. Publicar documentos vetorizados por lote.
+
+Variaveis obrigatorias para o script:
+
+- `AZURE_OPENAI_ENDPOINT`
+- `AZURE_OPENAI_API_KEY`
+- `AZURE_OPENAI_API_VERSION`
+- `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
+- `AZURE_SEARCH_ENDPOINT`
+- `AZURE_SEARCH_API_KEY`
+- `AZURE_SEARCH_INDEX_NAME` (opcional, default `catmas-index`)
+
+Execucao:
+
+```bash
+python scripts/ingest_catmas_to_azure_search.py
+```
+
+## System Message (Azure OpenAI)
+
+- Arquivo: `app/system_message.py`
+- Funcao: `build_tjmg_system_message()`
+
+Esse system message instrui o modelo a atuar como especialista de orcamento publico de Minas Gerais, exigindo:
+
+- Cruzamento Finalidade x Objeto x CATMAS x Tabelas 3/4/5/7/8.
+- Priorizacao de item CATMAS ATIVO.
+- Proibicao de inventar codigos.
+- Sinalizacao de risco tributario/CNAE.
+- Saida em JSON auditavel.
+
+## Validacao CNAE e Tributacao
+
+- Arquivo: `app/external_integrations.py`
+- Funcao: `validar_cnae_e_tributacao(objeto_contratacao, cnae_empresa)`
+
+Retorno consolidado:
+
+- Lista de CNAEs sugeridos pelo IBGE.
+- Lista de codigos de tributacao nacional (Portal NFS-e via integrador).
+- Parecer de compatibilidade CNAE x objeto.
+
+## Seguranca e Compliance (baseline implementado)
+
+- HSTS habilitado por middleware (`app/security.py`).
+- Trilhas de auditoria com Quem, Quando, Onde e O Que por requisicao (`AuditLogMiddleware`).
+- Mascara de CPF em logs por `mask_sensitive_data`.
+- Middleware OIDC Keycloak com validacao de token Bearer (`app/auth.py`) ativavel por `ENABLE_AUTH=true`.
+
+Para producao TJMG, recomenda-se complementar com:
+
+- Integracao OIDC Keycloak para autenticacao/autorizacao de usuarios.
+- WAF, varredura de vulnerabilidades e SAST/DAST no pipeline.
+- Retencao de logs em Log Analytics por no minimo 6 meses.
+
+Exemplo de variaveis para OIDC:
+
+- `ENABLE_AUTH=true`
+- `OIDC_ISSUER_URL=https://<keycloak-host>/realms/<realm>`
+- `OIDC_CLIENT_ID=<client-id>`
+- `OIDC_AUDIENCE=<client-id-ou-audience>`

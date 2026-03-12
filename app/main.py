@@ -6,7 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from .auth import OIDCAuthMiddleware
 from .schemas import AnalysisRequest, AnalysisResponse
+from .security import AuditLogMiddleware, HSTSMiddleware
 from .service import ExpenseClassificationService
 
 
@@ -35,6 +37,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(HSTSMiddleware)
+app.add_middleware(AuditLogMiddleware)
+app.add_middleware(OIDCAuthMiddleware)
 
 
 @app.get("/health")

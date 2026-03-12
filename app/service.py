@@ -7,7 +7,7 @@ from typing import List
 from pydantic import ValidationError
 
 from .data_sources import KnowledgeRepository, _normalize_digits, _score_text
-from .external_integrations import consultar_cnae_ibge, consultar_codigo_tributacao_nacional
+from .external_integrations import validar_cnae_e_tributacao
 from .gemini_client import OpenAIClassifier
 from .schemas import AnalysisRequest, AnalysisResponse, ClassificationSuggestion, SimilarCatmasItem
 
@@ -219,8 +219,17 @@ class ExpenseClassificationService:
         tabela_8 = self.repo.rank_table_entries(self.repo.tables.tabela_8, search_query)
 
         external_enabled = os.getenv("ENABLE_EXTERNAL_LOOKUPS", "false").lower() == "true"
-        cnaes_ibge = consultar_cnae_ibge(request.objeto_contratacao) if external_enabled else []
-        tributacao = consultar_codigo_tributacao_nacional(request.objeto_contratacao) if external_enabled else []
+        validacao_externa = (
+            validar_cnae_e_tributacao(request.objeto_contratacao, request.cnae_empresa)
+            if external_enabled
+            else {
+                "cnaes_ibge": [],
+                "codigos_tributacao_nacional": [],
+                "compatibilidade_cnae": "Consultas externas desabilitadas.",
+            }
+        )
+        cnaes_ibge = validacao_externa.get("cnaes_ibge", [])
+        tributacao = validacao_externa.get("codigos_tributacao_nacional", [])
 
         context_payload = {
             "catmas_candidates": catmas_candidates[: min(12, request.max_sugestoes * 4)],
@@ -261,8 +270,10 @@ class ExpenseClassificationService:
                 score = self._to_float(catmas_candidates[index].get("score", 0), 0.0) if len(catmas_candidates) > index else 0.0
                 sugestoes[index] = sugestao.model_copy(update={"grau_similaridade_catmas": round(score, 4)})
 
-        compatibilidade = ai_output.get("compatibilidade_cnae") or self._avaliar_compatibilidade_cnae(
-            request.cnae_empresa, cnaes_ibge
+        compatibilidade = (
+            ai_output.get("compatibilidade_cnae")
+            or str(validacao_externa.get("compatibilidade_cnae", "")).strip()
+            or self._avaliar_compatibilidade_cnae(request.cnae_empresa, cnaes_ibge)
         )
 
         alertas = list(ai_output.get("alertas", []))

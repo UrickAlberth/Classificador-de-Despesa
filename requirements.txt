@@ -8,3 +8,5 @@ pypdf
 beautifulsoup4
 openai
 python-dotenv
+azure-search-documents
+PyJWT[crypto]

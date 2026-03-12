@@ -7,6 +7,8 @@ from typing import Any, Dict
 
 from openai import AzureOpenAI, OpenAI
 
+from .system_message import build_tjmg_system_message
+
 
 class OpenAIClassifier:
     def __init__(self):
@@ -61,7 +63,7 @@ class OpenAIClassifier:
                 messages=[
                     {
                         "role": "system",
-                        "content": "Responda somente com JSON valido e sem markdown.",
+                        "content": build_tjmg_system_message(),
                     },
                     {"role": "user", "content": prompt},
                 ],
