@@ -85,8 +85,16 @@ class CatmasVectorStore:
         self.enabled = bool(api_key)
         self.client = OpenAI(api_key=api_key) if self.enabled else None
         if self.enabled:
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._init_db()
+            try:
+                self.db_path.parent.mkdir(parents=True, exist_ok=True)
+                self._init_db()
+            except OSError as exc:
+                warnings.warn(
+                    f"Desativando busca vetorial CATMAS: caminho nao gravavel em runtime ({self.db_path}): {exc}",
+                    RuntimeWarning,
+                )
+                self.enabled = False
+                self.client = None
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path)
@@ -238,6 +246,11 @@ class KnowledgeRepository:
         configured = os.getenv("CATMAS_VECTOR_DB_PATH", "").strip()
         if configured:
             return Path(configured)
+
+        # Em Vercel, /var/task eh somente leitura; usar /tmp evita falha no cold start.
+        running_on_vercel = bool(os.getenv("VERCEL", "").strip())
+        if running_on_vercel:
+            return Path("/tmp") / "data" / "catmas_vectors.db"
 
         # Em App Service, HOME aponta para armazenamento persistente compartilhado.
         home_dir = os.getenv("HOME", "").strip()
