@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import List
 
@@ -48,6 +49,20 @@ class ExpenseClassificationService:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    def _infer_objeto_from_documents(self, text: str) -> str:
+        if not text:
+            return ""
+        patterns = [
+            r"(?im)^\s*objeto\s*(?:da\s*contratacao|do\s*contrato)?\s*[:\-]\s*(.+)$",
+            r"(?im)^\s*descricao\s*do\s*objeto\s*[:\-]\s*(.+)$",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return str(match.group(1)).strip()
+        lines = [line.strip() for line in text.splitlines() if len(line.strip()) >= 25]
+        return lines[0] if lines else ""
 
     def _table_field(self, table_data: List[dict], index: int = 0) -> tuple[str, str]:
         if len(table_data) <= index:
@@ -217,7 +232,11 @@ class ExpenseClassificationService:
 
     def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
         search_query = f"{request.finalidade} {request.objeto_contratacao}"
-        catmas_query = request.objeto_contratacao.strip() or search_query
+        documento_text = (request.texto_documentos or "").strip()
+        objeto_inferido = self._infer_objeto_from_documents(documento_text)
+
+        base_objeto = request.objeto_contratacao.strip() or objeto_inferido or search_query
+        catmas_query = f"{base_objeto} {objeto_inferido}".strip() if objeto_inferido else base_objeto
         catmas_candidates = self.repo.search_catmas(catmas_query, max_results=20, only_active=True)
         tabela_3 = self.repo.rank_table_entries(self.repo.tables.tabela_3, search_query)
         tabela_4 = self.repo.rank_table_entries(self.repo.tables.tabela_4, search_query)
@@ -241,6 +260,7 @@ class ExpenseClassificationService:
         context_payload = {
             "catmas_candidates": catmas_candidates[: min(12, request.max_sugestoes * 4)],
             "search_query": catmas_query,
+            "objeto_contratacao_inferido_documentos": objeto_inferido,
             "tabela_3": tabela_3,
             "tabela_4": tabela_4,
             "tabela_5": tabela_5,

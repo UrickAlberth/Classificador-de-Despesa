@@ -169,6 +169,36 @@ Execucao:
 python scripts/ingest_catmas_to_azure_search.py
 ```
 
+## OCR de documentos e inferencia do objeto da contratacao
+
+Endpoint adicional implementado:
+
+- `POST /analisar-com-arquivos` (multipart/form-data)
+
+Campos suportados:
+
+- `finalidade`
+- `objeto_contratacao` (pode ser vazio; sistema tenta inferir pelos documentos)
+- `texto_documentos` (opcional)
+- `cnpj` (opcional)
+- `cnae_empresa` (opcional)
+- `permitir_multiplas_classificacoes`
+- `max_sugestoes`
+- `arquivos` (multiplos: CI, ETP, TR, Contrato, Nota Fiscal etc.)
+
+OCR com IA:
+
+- Modelo padrao: `mistral-document-ai-2512`
+- Variaveis necessarias:
+   - `MISTRAL_API_KEY`
+   - `MISTRAL_DOCUMENT_MODEL` (default `mistral-document-ai-2512`)
+   - `MISTRAL_OCR_ENDPOINT` (default `https://api.mistral.ai/v1/ocr`)
+
+Comportamento:
+
+- O texto extraido por OCR e concatenado em `texto_documentos` para enriquecer a analise.
+- O sistema tenta inferir o objeto da contratacao com base nos documentos quando o campo vier vazio.
+
 ## System Message (Azure OpenAI)
 
 - Arquivo: `app/system_message.py`

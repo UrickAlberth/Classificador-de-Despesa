@@ -8,6 +8,11 @@ export type AnalysisRequest = {
   max_sugestoes: number;
 };
 
+export type AnalysisSubmission = {
+  payload: AnalysisRequest;
+  files: File[];
+};
+
 export type ClassificationSuggestion = {
   item_catmas: string;
   item_catmas_codigo: string;

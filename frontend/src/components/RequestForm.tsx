@@ -4,7 +4,7 @@ import type { AnalysisRequest } from "../types";
 
 type RequestFormProps = {
   disabled: boolean;
-  onSubmit: (payload: AnalysisRequest) => Promise<void>;
+  onSubmit: (payload: AnalysisRequest, files: File[]) => Promise<void>;
   onClearResult: () => void;
 };
 
@@ -20,6 +20,7 @@ const initialForm: AnalysisRequest = {
 
 export function RequestForm({ disabled, onSubmit, onClearResult }: RequestFormProps) {
   const [form, setForm] = useState<AnalysisRequest>(initialForm);
+  const [files, setFiles] = useState<File[]>([]);
 
   function handleChange<K extends keyof AnalysisRequest>(key: K, value: AnalysisRequest[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -33,7 +34,7 @@ export function RequestForm({ disabled, onSubmit, onClearResult }: RequestFormPr
       texto_documentos: form.texto_documentos?.trim() || undefined,
       cnpj: form.cnpj?.trim() || undefined,
       cnae_empresa: form.cnae_empresa?.trim() || undefined,
-    });
+    }, files);
   }
 
   return (
@@ -55,11 +56,9 @@ export function RequestForm({ disabled, onSubmit, onClearResult }: RequestFormPr
         <label>
           Objeto da contratação
           <textarea
-            required
-            minLength={10}
             value={form.objeto_contratacao}
             onChange={(event) => handleChange("objeto_contratacao", event.target.value)}
-            placeholder="Descreva o objeto contratado"
+            placeholder="Descreva o objeto contratado (ou deixe em branco para inferir pelos documentos)"
             disabled={disabled}
           />
         </label>
@@ -73,6 +72,22 @@ export function RequestForm({ disabled, onSubmit, onClearResult }: RequestFormPr
             placeholder="Trechos de CI, ETP, TR, contrato ou anexos"
             disabled={disabled}
           />
+        </label>
+
+        <label>
+          Arquivos para OCR (CI, ETP, TR, Contrato, Nota Fiscal e outros)
+          <input
+            type="file"
+            multiple
+            accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.txt,.csv,.md,.html"
+            onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+            disabled={disabled}
+          />
+          <small className="muted">
+            {files.length > 0
+              ? `${files.length} arquivo(s) selecionado(s) para OCR com Mistral Document AI.`
+              : "Nenhum arquivo selecionado."}
+          </small>
         </label>
 
         <div className="form-row">

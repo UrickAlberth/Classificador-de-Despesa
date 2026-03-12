@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
-import { analisarDespesa } from "../services/api";
-import type { AnalysisRequest, AnalysisResponse, ProgressStep } from "../types";
+import { analisarDespesa, analisarDespesaComArquivos } from "../services/api";
+import type { AnalysisResponse, AnalysisSubmission, ProgressStep } from "../types";
 
 const initialSteps: ProgressStep[] = [
   {
@@ -14,6 +14,12 @@ const initialSteps: ProgressStep[] = [
     id: "envio",
     label: "Envio para API",
     description: "Transmitindo dados para o serviço de classificação.",
+    status: "pending",
+  },
+  {
+    id: "ocr",
+    label: "OCR de documentos",
+    description: "Extraindo texto de CI/ETP/TR/Contrato/NF e anexos.",
     status: "pending",
   },
   {
@@ -51,7 +57,8 @@ export function useAnalysis() {
     setError(null);
   }
 
-  async function runAnalysis(payload: AnalysisRequest) {
+  async function runAnalysis(submission: AnalysisSubmission) {
+    const { payload, files } = submission;
     resetState();
     setIsLoading(true);
 
@@ -60,9 +67,26 @@ export function useAnalysis() {
     setSteps((current) => setStepStatus(setStepStatus(current, "validacao", "done"), "envio", "active"));
 
     try {
-      const pendingResponse = analisarDespesa(payload);
+      const hasFiles = files.length > 0;
+      const pendingResponse = hasFiles ? analisarDespesaComArquivos(payload, files) : analisarDespesa(payload);
 
-      setSteps((current) => setStepStatus(setStepStatus(current, "envio", "done"), "processamento", "active"));
+      if (hasFiles) {
+        setSteps((current) =>
+          setStepStatus(setStepStatus(current, "envio", "done"), "ocr", "active")
+        );
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        setSteps((current) =>
+          setStepStatus(setStepStatus(current, "ocr", "done"), "processamento", "active")
+        );
+      } else {
+        setSteps((current) =>
+          setStepStatus(
+            setStepStatus(setStepStatus(current, "envio", "done"), "ocr", "done"),
+            "processamento",
+            "active"
+          )
+        );
+      }
 
       const response = await pendingResponse;
 

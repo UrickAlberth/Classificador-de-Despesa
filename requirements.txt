@@ -10,3 +10,4 @@ openai
 python-dotenv
 azure-search-documents
 PyJWT[crypto]
+python-multipart

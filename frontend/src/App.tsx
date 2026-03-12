@@ -31,8 +31,8 @@ function App() {
     };
   }, []);
 
-  async function handleSubmit(payload: AnalysisRequest) {
-    await runAnalysis(payload);
+  async function handleSubmit(payload: AnalysisRequest, files: File[]) {
+    await runAnalysis({ payload, files });
   }
 
   return (
