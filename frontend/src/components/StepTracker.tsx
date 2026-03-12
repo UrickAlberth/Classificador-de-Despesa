@@ -20,8 +20,12 @@ function statusLabel(status: ProgressStep["status"]) {
 
 export function StepTracker({ steps, progressPercent }: StepTrackerProps) {
   return (
-    <section className="card">
-      <h2>Andamento da análise</h2>
+    <section className="card tracker-card">
+      <div className="section-heading">
+        <h2>Andamento da análise</h2>
+        <p>Acompanhe cada etapa do processamento técnico da solicitação.</p>
+      </div>
+
       <div className="progress-shell" aria-label="progresso geral">
         <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
       </div>
@@ -30,11 +34,12 @@ export function StepTracker({ steps, progressPercent }: StepTrackerProps) {
       <ol className="step-list">
         {steps.map((step) => (
           <li key={step.id} className={`step-item status-${step.status}`}>
+            <span className="step-marker" aria-hidden="true" />
             <div>
               <strong>{step.label}</strong>
               <p>{step.description}</p>
             </div>
-            <span>{statusLabel(step.status)}</span>
+            <span className="step-status-badge">{statusLabel(step.status)}</span>
           </li>
         ))}
       </ol>

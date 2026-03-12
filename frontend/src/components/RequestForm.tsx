@@ -38,90 +38,101 @@ export function RequestForm({ disabled, onSubmit, onClearResult }: RequestFormPr
   }
 
   return (
-    <section className="card">
-      <h2>Entrada da análise</h2>
+    <section className="card form-card">
+      <div className="section-heading">
+        <h2>Entrada da análise</h2>
+        <p>Preencha os campos essenciais e anexe documentos para extração automática do objeto da contratação.</p>
+      </div>
+
       <form onSubmit={handleSubmit} className="form-grid">
-        <label>
-          Finalidade
-          <textarea
-            required
-            minLength={10}
-            value={form.finalidade}
-            onChange={(event) => handleChange("finalidade", event.target.value)}
-            placeholder="Descreva a finalidade da contratação"
-            disabled={disabled}
-          />
-        </label>
+        <div className="form-section">
+          <h3>Objeto e finalidade</h3>
 
-        <label>
-          Objeto da contratação
-          <textarea
-            value={form.objeto_contratacao}
-            onChange={(event) => handleChange("objeto_contratacao", event.target.value)}
-            placeholder="Descreva o objeto contratado (ou deixe em branco para inferir pelos documentos)"
-            disabled={disabled}
-          />
-        </label>
-
-        <label>
-          Texto dos documentos (opcional)
-          <textarea
-            rows={5}
-            value={form.texto_documentos}
-            onChange={(event) => handleChange("texto_documentos", event.target.value)}
-            placeholder="Trechos de CI, ETP, TR, contrato ou anexos"
-            disabled={disabled}
-          />
-        </label>
-
-        <label>
-          Arquivos para OCR (CI, ETP, TR, Contrato, Nota Fiscal e outros)
-          <input
-            type="file"
-            multiple
-            accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.txt,.csv,.md,.html"
-            onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-            disabled={disabled}
-          />
-          <small className="muted">
-            {files.length > 0
-              ? `${files.length} arquivo(s) selecionado(s) para OCR com Mistral Document AI.`
-              : "Nenhum arquivo selecionado."}
-          </small>
-        </label>
-
-        <div className="form-row">
           <label>
-            CNPJ (opcional)
-            <input
-              value={form.cnpj}
-              onChange={(event) => handleChange("cnpj", event.target.value)}
-              placeholder="00.000.000/0000-00"
+            Finalidade do gasto
+            <textarea
+              required
+              minLength={10}
+              value={form.finalidade}
+              onChange={(event) => handleChange("finalidade", event.target.value)}
+              placeholder="Descreva o propósito administrativo da contratação"
               disabled={disabled}
             />
           </label>
 
           <label>
-            CNAE da empresa (opcional)
-            <input
-              value={form.cnae_empresa}
-              onChange={(event) => handleChange("cnae_empresa", event.target.value)}
-              placeholder="6204-0/00"
+            Objeto da contratação
+            <textarea
+              value={form.objeto_contratacao}
+              onChange={(event) => handleChange("objeto_contratacao", event.target.value)}
+              placeholder="Descreva o objeto. Se estiver em branco, o sistema tenta inferir pelos anexos."
               disabled={disabled}
             />
           </label>
 
           <label>
-            Máximo de sugestões
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={form.max_sugestoes}
-              onChange={(event) => handleChange("max_sugestoes", Number(event.target.value))}
+            Texto dos documentos (opcional)
+            <textarea
+              rows={5}
+              value={form.texto_documentos}
+              onChange={(event) => handleChange("texto_documentos", event.target.value)}
+              placeholder="Cole trechos de CI, ETP, TR, contrato ou outros documentos."
               disabled={disabled}
             />
           </label>
+        </div>
+
+        <div className="form-section">
+          <h3>Anexos para leitura automática</h3>
+          <label>
+            Arquivos (OCR)
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.txt,.csv,.md,.html"
+              onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+              disabled={disabled}
+            />
+            <small className="muted">
+              {files.length > 0
+                ? `${files.length} arquivo(s) selecionado(s) para OCR com Mistral Document AI.`
+                : "Nenhum arquivo selecionado. Sem anexos, a etapa de OCR é omitida automaticamente."}
+            </small>
+          </label>
+
+          <div className="form-row">
+            <label>
+              CNPJ (opcional)
+              <input
+                value={form.cnpj}
+                onChange={(event) => handleChange("cnpj", event.target.value)}
+                placeholder="00.000.000/0000-00"
+                disabled={disabled}
+              />
+            </label>
+
+            <label>
+              CNAE da empresa (opcional)
+              <input
+                value={form.cnae_empresa}
+                onChange={(event) => handleChange("cnae_empresa", event.target.value)}
+                placeholder="6204-0/00"
+                disabled={disabled}
+              />
+            </label>
+
+            <label>
+              Máximo de sugestões
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={form.max_sugestoes}
+                onChange={(event) => handleChange("max_sugestoes", Number(event.target.value))}
+                disabled={disabled}
+              />
+            </label>
+          </div>
         </div>
 
         <label className="checkbox-label">
@@ -134,9 +145,11 @@ export function RequestForm({ disabled, onSubmit, onClearResult }: RequestFormPr
           Permitir múltiplas classificações
         </label>
 
-        <button type="submit" disabled={disabled}>
-          {disabled ? "Analisando..." : "Iniciar análise"}
-        </button>
+        <div className="form-actions">
+          <button type="submit" disabled={disabled}>
+            {disabled ? "Analisando..." : "Iniciar análise"}
+          </button>
+        </div>
       </form>
     </section>
   );
