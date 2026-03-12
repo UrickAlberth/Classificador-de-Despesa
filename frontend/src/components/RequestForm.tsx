@@ -21,6 +21,7 @@ const initialForm: AnalysisRequest = {
 export function RequestForm({ disabled, onSubmit, onClearResult }: RequestFormProps) {
   const [form, setForm] = useState<AnalysisRequest>(initialForm);
   const [files, setFiles] = useState<File[]>([]);
+  const requiresManualObject = files.length === 0;
 
   function handleChange<K extends keyof AnalysisRequest>(key: K, value: AnalysisRequest[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -63,11 +64,18 @@ export function RequestForm({ disabled, onSubmit, onClearResult }: RequestFormPr
           <label>
             Objeto da contratação
             <textarea
+              required={requiresManualObject}
+              minLength={10}
               value={form.objeto_contratacao}
               onChange={(event) => handleChange("objeto_contratacao", event.target.value)}
               placeholder="Descreva o objeto. Se estiver em branco, o sistema tenta inferir pelos anexos."
               disabled={disabled}
             />
+            <small className="muted">
+              {requiresManualObject
+                ? "Sem anexos, este campo é obrigatório (mínimo de 10 caracteres)."
+                : "Com anexos, este campo pode ficar em branco para inferência automática por OCR."}
+            </small>
           </label>
 
           <label>
