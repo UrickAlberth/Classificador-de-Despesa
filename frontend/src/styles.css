@@ -5,13 +5,15 @@
   --paper: #ffffff;
   --ink-strong: #132238;
   --ink: #223a57;
-  --ink-soft: #53657c;
+  --ink-soft: #3f536b;
   --line: #d9e0ea;
   --brand: #0f3d73;
   --brand-2: #1e5ca8;
   --success: #1f7a47;
   --warning: #9a4d02;
   --danger: #b42318;
+  --focus-ring: #0a5fcc;
+  --focus-ring-outer: rgba(10, 95, 204, 0.28);
   --shadow: 0 18px 40px -28px rgba(13, 39, 70, 0.4);
   color: var(--ink-strong);
   background: radial-gradient(circle at 8% 0%, #ffffff 0%, var(--bg) 52%);
@@ -75,7 +77,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.09em;
   font-weight: 600;
-  opacity: 0.92;
+  color: #eef5ff;
 }
 
 .header-main {
@@ -109,7 +111,7 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  opacity: 0.86;
+  color: #e8f1ff;
 }
 
 .status-pill {
@@ -122,18 +124,18 @@ body {
 }
 
 .status-online {
-  background: rgba(49, 177, 107, 0.2);
-  color: #d5ffe8;
+  background: rgba(17, 110, 68, 0.32);
+  color: #f2fff8;
 }
 
 .status-offline {
-  background: rgba(203, 64, 64, 0.22);
-  color: #ffe0e0;
+  background: rgba(145, 35, 35, 0.34);
+  color: #fff1f1;
 }
 
 .status-checking {
-  background: rgba(255, 255, 255, 0.18);
-  color: #f1f6fd;
+  background: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
 }
 
 .api-hint {
@@ -245,10 +247,20 @@ input {
   color: #192e47;
 }
 
-textarea:focus,
-input:focus {
-  outline: 2px solid rgba(30, 92, 168, 0.18);
+textarea:focus-visible,
+input:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--focus-ring-outer);
   border-color: var(--brand-2);
+}
+
+textarea:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+button:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
 }
 
 textarea {
@@ -287,7 +299,8 @@ button:hover:enabled {
 }
 
 button:disabled {
-  background: #92a8c6;
+  background: #5f7595;
+  color: #eaf1fb;
   cursor: not-allowed;
 }
 
