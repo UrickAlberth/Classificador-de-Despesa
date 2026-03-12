@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 from typing import List
 
 from pydantic import ValidationError
 
 from .data_sources import KnowledgeRepository, _normalize_digits, _score_text
+from .document_ai import infer_objeto_contratacao_from_text
 from .external_integrations import validar_cnae_e_tributacao
 from .gemini_client import OpenAIClassifier
 from .schemas import AnalysisRequest, AnalysisResponse, ClassificationSuggestion, SimilarCatmasItem
@@ -49,20 +49,6 @@ class ExpenseClassificationService:
             return float(value)
         except (TypeError, ValueError):
             return default
-
-    def _infer_objeto_from_documents(self, text: str) -> str:
-        if not text:
-            return ""
-        patterns = [
-            r"(?im)^\s*objeto\s*(?:da\s*contratacao|do\s*contrato)?\s*[:\-]\s*(.+)$",
-            r"(?im)^\s*descricao\s*do\s*objeto\s*[:\-]\s*(.+)$",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                return str(match.group(1)).strip()
-        lines = [line.strip() for line in text.splitlines() if len(line.strip()) >= 25]
-        return lines[0] if lines else ""
 
     def _table_field(self, table_data: List[dict], index: int = 0) -> tuple[str, str]:
         if len(table_data) <= index:
@@ -233,10 +219,11 @@ class ExpenseClassificationService:
     def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
         search_query = f"{request.finalidade} {request.objeto_contratacao}"
         documento_text = (request.texto_documentos or "").strip()
-        objeto_inferido = self._infer_objeto_from_documents(documento_text)
+        objeto_inferido = infer_objeto_contratacao_from_text(documento_text)
 
-        base_objeto = request.objeto_contratacao.strip() or objeto_inferido or search_query
-        catmas_query = f"{base_objeto} {objeto_inferido}".strip() if objeto_inferido else base_objeto
+        # Quando houver anexos com objeto identificavel, ele vira a fonte primaria da busca CATMAS.
+        base_objeto = objeto_inferido or request.objeto_contratacao.strip() or search_query
+        catmas_query = base_objeto
         catmas_candidates = self.repo.search_catmas(catmas_query, max_results=20, only_active=True)
         tabela_3 = self.repo.rank_table_entries(self.repo.tables.tabela_3, search_query)
         tabela_4 = self.repo.rank_table_entries(self.repo.tables.tabela_4, search_query)
@@ -246,7 +233,7 @@ class ExpenseClassificationService:
 
         external_enabled = os.getenv("ENABLE_EXTERNAL_LOOKUPS", "false").lower() == "true"
         validacao_externa = (
-            validar_cnae_e_tributacao(request.objeto_contratacao, request.cnae_empresa)
+            validar_cnae_e_tributacao(base_objeto, request.cnae_empresa)
             if external_enabled
             else {
                 "cnaes_ibge": [],

@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { analisarDespesa, analisarDespesaComArquivos } from "../services/api";
 import type { AnalysisResponse, AnalysisSubmission, ProgressStep } from "../types";
 
-const initialSteps: ProgressStep[] = [
+const baseSteps: ProgressStep[] = [
   {
     id: "validacao",
     label: "Validação local",
@@ -14,12 +14,6 @@ const initialSteps: ProgressStep[] = [
     id: "envio",
     label: "Envio para API",
     description: "Transmitindo dados para o serviço de classificação.",
-    status: "pending",
-  },
-  {
-    id: "ocr",
-    label: "OCR de documentos",
-    description: "Extraindo texto de CI/ETP/TR/Contrato/NF e anexos.",
     status: "pending",
   },
   {
@@ -36,12 +30,26 @@ const initialSteps: ProgressStep[] = [
   },
 ];
 
+const ocrStep: ProgressStep = {
+  id: "ocr",
+  label: "OCR de documentos",
+  description: "Extraindo texto de CI/ETP/TR/Contrato/NF e anexos.",
+  status: "pending",
+};
+
+function buildInitialSteps(hasFiles: boolean): ProgressStep[] {
+  if (hasFiles) {
+    return [baseSteps[0], baseSteps[1], ocrStep, baseSteps[2], baseSteps[3]];
+  }
+  return [...baseSteps];
+}
+
 function setStepStatus(steps: ProgressStep[], id: string, status: ProgressStep["status"]): ProgressStep[] {
   return steps.map((step) => (step.id === id ? { ...step, status } : step));
 }
 
 export function useAnalysis() {
-  const [steps, setSteps] = useState<ProgressStep[]>(initialSteps);
+  const [steps, setSteps] = useState<ProgressStep[]>(buildInitialSteps(false));
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,15 +59,16 @@ export function useAnalysis() {
     return Math.round((doneCount / steps.length) * 100);
   }, [steps]);
 
-  function resetState() {
-    setSteps(initialSteps);
+  function resetState(hasFiles: boolean = false) {
+    setSteps(buildInitialSteps(hasFiles));
     setResult(null);
     setError(null);
   }
 
   async function runAnalysis(submission: AnalysisSubmission) {
     const { payload, files } = submission;
-    resetState();
+    const hasFiles = files.length > 0;
+    resetState(hasFiles);
     setIsLoading(true);
 
     setSteps((current) => setStepStatus(current, "validacao", "active"));
@@ -67,7 +76,6 @@ export function useAnalysis() {
     setSteps((current) => setStepStatus(setStepStatus(current, "validacao", "done"), "envio", "active"));
 
     try {
-      const hasFiles = files.length > 0;
       const pendingResponse = hasFiles ? analisarDespesaComArquivos(payload, files) : analisarDespesa(payload);
 
       if (hasFiles) {
@@ -80,11 +88,7 @@ export function useAnalysis() {
         );
       } else {
         setSteps((current) =>
-          setStepStatus(
-            setStepStatus(setStepStatus(current, "envio", "done"), "ocr", "done"),
-            "processamento",
-            "active"
-          )
+          setStepStatus(setStepStatus(current, "envio", "done"), "processamento", "active")
         );
       }
 

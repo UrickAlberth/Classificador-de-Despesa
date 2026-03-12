@@ -81,9 +81,7 @@ async def analisar_despesa_com_arquivos(
         extracted_text, file_metadata = extract_text_from_uploaded_files(arquivos)
         combined_text = "\n\n".join(part for part in [texto_documentos.strip(), extracted_text.strip()] if part)
 
-        resolved_objeto = objeto_contratacao.strip()
-        if not resolved_objeto:
-            resolved_objeto = infer_objeto_contratacao_from_text(combined_text)
+        resolved_objeto = infer_objeto_contratacao_from_text(combined_text) or objeto_contratacao.strip()
 
         if len(resolved_objeto) < 10:
             raise HTTPException(
