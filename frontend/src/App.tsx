@@ -10,6 +10,7 @@ import type { AnalysisRequest } from "./types";
 function App() {
   const { steps, progressPercent, isLoading, result, error, runAnalysis, resetState } = useAnalysis();
   const [isApiOnline, setIsApiOnline] = useState<boolean | null>(null);
+  const [activeView, setActiveView] = useState<"entrada" | "resultado">("entrada");
 
   useEffect(() => {
     let isMounted = true;
@@ -32,7 +33,12 @@ function App() {
   }, []);
 
   async function handleSubmit(payload: AnalysisRequest, files: File[]) {
+    setActiveView("resultado");
     await runAnalysis({ payload, files });
+  }
+
+  function handleBackToEntry() {
+    setActiveView("entrada");
   }
 
   return (
@@ -67,14 +73,25 @@ function App() {
         </div>
       </header>
 
-      <section className="columns">
-        <div className="left-column">
+      <section className="screen-shell">
+        {activeView === "entrada" ? (
           <RequestForm disabled={isLoading} onSubmit={handleSubmit} onClearResult={resetState} />
-          <StepTracker steps={steps} progressPercent={progressPercent} />
-        </div>
-        <div className="right-column">
-          <ResultPanel result={result} error={error} />
-        </div>
+        ) : (
+          <>
+            <div className="view-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={handleBackToEntry}
+                disabled={isLoading}
+              >
+                Voltar para entrada
+              </button>
+            </div>
+            <StepTracker steps={steps} progressPercent={progressPercent} />
+            <ResultPanel result={result} error={error} />
+          </>
+        )}
       </section>
     </main>
   );

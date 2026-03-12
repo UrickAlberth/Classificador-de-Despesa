@@ -183,6 +183,30 @@ body {
   gap: 18px;
 }
 
+.screen-shell {
+  display: grid;
+  gap: 18px;
+  max-width: 1100px;
+}
+
+.view-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.ghost-button {
+  background: #ffffff;
+  color: var(--brand);
+  border: 1px solid #9cb5d4;
+  box-shadow: none;
+}
+
+.ghost-button:hover:enabled {
+  filter: none;
+  background: #f2f7ff;
+  border-color: var(--brand-2);
+}
+
 .left-column,
 .right-column {
   display: grid;
