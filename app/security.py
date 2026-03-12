@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 from datetime import datetime, timezone
 
 from fastapi import Request
@@ -30,10 +31,12 @@ def build_audit_logger() -> logging.Logger:
         return logger
 
     logger.setLevel(logging.INFO)
-    handler = logging.StreamHandler()
+    # Emit audit events to stdout to avoid providers classifying them as errors.
+    handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter("%(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+    logger.propagate = False
     return logger
 
 
