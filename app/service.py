@@ -8,14 +8,14 @@ from pydantic import ValidationError
 
 from .data_sources import KnowledgeRepository, _normalize_digits, _score_text
 from .external_integrations import consultar_cnae_ibge, consultar_codigo_tributacao_nacional
-from .gemini_client import GeminiClassifier
+from .gemini_client import OpenAIClassifier
 from .schemas import AnalysisRequest, AnalysisResponse, ClassificationSuggestion, SimilarCatmasItem
 
 
 class ExpenseClassificationService:
     def __init__(self, base_dir: Path):
         self.repo = KnowledgeRepository(base_dir)
-        self.gemini = GeminiClassifier()
+        self.ai = OpenAIClassifier()
 
     def _avaliar_compatibilidade_cnae(self, cnae_empresa: str | None, cnaes_ibge: List[dict]) -> str:
         if not cnae_empresa:
@@ -236,7 +236,7 @@ class ExpenseClassificationService:
             "texto_documentos_usuario": request.texto_documentos or "",
         }
 
-        ai_output = self.gemini.suggest(request.finalidade, request.objeto_contratacao, context_payload)
+        ai_output = self.ai.suggest(request.finalidade, request.objeto_contratacao, context_payload)
 
         raw_sugestoes = ai_output.get("sugestoes", [])
         sugestoes: List[ClassificationSuggestion] = []

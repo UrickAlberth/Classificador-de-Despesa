@@ -15,7 +15,7 @@ service = ExpenseClassificationService(BASE_DIR)
 
 app = FastAPI(
     title="TJMG Classificador de Despesa com IA",
-    description="MVP de classificação econômica e tributária com suporte a CATMAS, tabelas orçamentárias e Gemini 2.5.",
+    description="MVP de classificacao economica e tributaria com suporte a CATMAS, tabelas orcamentarias e OpenAI.",
     version="0.1.0",
 )
 

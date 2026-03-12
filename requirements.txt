@@ -1,8 +1,10 @@
 fastapi
 uvicorn
+gunicorn
 pandas
+numpy
 openpyxl
 pypdf
 beautifulsoup4
-google-genai
+openai
 python-dotenv

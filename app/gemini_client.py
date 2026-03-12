@@ -5,16 +5,16 @@ import os
 import re
 from typing import Any, Dict
 
-from google import genai
+from openai import OpenAI
 
 
-class GeminiClassifier:
+class OpenAIClassifier:
     def __init__(self):
-        self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+        self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.model_name = os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-mini")
         self.enabled = bool(self.api_key)
         if self.enabled:
-            self.client = genai.Client(api_key=self.api_key)
+            self.client = OpenAI(api_key=self.api_key)
         else:
             self.client = None
 
@@ -28,8 +28,18 @@ class GeminiClassifier:
             return self._fallback_response(context_payload)
 
         prompt = self._build_prompt(finalidade, objeto_contratacao, context_payload)
-        response = self.client.models.generate_content(model=self.model_name, contents=prompt)
-        text = getattr(response, "text", "") or ""
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Responda somente com JSON valido e sem markdown.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+        text = (response.choices[0].message.content or "") if response.choices else ""
         parsed = self._extract_json(text)
         if parsed:
             return parsed
@@ -153,7 +163,7 @@ Retorne SOMENTE JSON no formato:
                         }
                         for item in catmas[:5]
                     ],
-                    "justificativa": "Sugestão gerada por fallback determinístico por ausência/erro na chamada Gemini.",
+                    "justificativa": "Sugestao gerada por fallback deterministico por ausencia/erro na chamada OpenAI.",
                 }
             ],
             "compatibilidade_cnae": "Análise preliminar sem IA: revisar CNAE e objeto para aderência final.",

@@ -5,7 +5,8 @@ MVP em Python com FastAPI para classificação econômica da despesa e apoio tri
 - Base CATMAS/SIAD via Google Sheets (com fallback CSV local);
 - Tabelas orçamentárias (XLSX) com foco em Tabelas 3, 4, 5, 7 e 8;
 - Documentos do processo SEI 0038700-03.2026.8.13.0000 como contexto de conhecimento;
-- Integração de IA com Gemini 2.5 via chave de API.
+- Integração de IA com OpenAI (gpt-4.1-mini) via chave de API.
+- Vetorização da base CATMAS em SQLite com embeddings text-embedding-3-large.
 
 ## Requisitos cobertos
 
@@ -44,14 +45,19 @@ MVP em Python com FastAPI para classificação econômica da despesa e apoio tri
 - `app/schemas.py`: modelos de entrada/saída.
 - `app/data_sources.py`: ingestão e busca nas bases.
 - `app/external_integrations.py`: consultas IBGE/NFS-e.
-- `app/gemini_client.py`: integração Gemini 2.5.
+- `app/gemini_client.py`: integração OpenAI (chat + fallback).
 - `app/service.py`: orquestração e regras de negócio.
 - `frontend/`: aplicação React para operação do fluxo com painel de andamento.
 
 ## Como executar
 
 1. Crie `.env` a partir de `.env.example` e preencha:
-   - `GEMINI_API_KEY`
+   - `OPENAI_API_KEY`
+   - `OPENAI_CHAT_MODEL` (default `gpt-4.1-mini`)
+   - `OPENAI_EMBEDDING_MODEL` (default `text-embedding-3-large`)
+   - `ENABLE_CATMAS_VECTOR_SEARCH=true`
+   - `ENABLE_CATMAS_VECTOR_SYNC_ON_STARTUP=false` (recomendado em App Service)
+   - `CATMAS_VECTOR_DB_PATH=/home/data/catmas_vectors.db` (recomendado em App Service Linux)
    - `ENABLE_EXTERNAL_LOOKUPS=true` (para habilitar consultas online)
    - `CATMAS_GOOGLE_SHEETS_URL` (opcional, padrão aponta para a planilha oficial)
    - opcional: `NFSE_NACIONAL_BASE_URL`
@@ -84,10 +90,31 @@ curl -X POST http://127.0.0.1:8000/analisar \
 
 ## Observações
 
-- Se a chave Gemini não for informada ou a chamada falhar, o sistema usa fallback determinístico.
+- Se a chave OpenAI não for informada ou a chamada falhar, o sistema usa fallback determinístico.
 - As consultas externas (IBGE/NFS-e) ficam desabilitadas por padrão para evitar latência; habilite com `ENABLE_EXTERNAL_LOOKUPS=true`.
 - O carregamento CATMAS tenta primeiro o Google Sheets; em caso de indisponibilidade, usa o CSV local `Retrato do Catmas - Fevereiro25 - v3.xlsx - Geral.csv`.
+- Quando habilitado, o sistema gera/atualiza embeddings da base CATMAS e persiste em SQLite para busca vetorial.
+- No Azure App Service, prefira armazenar o SQLite em `/home/data/catmas_vectors.db` (ou caminho definido em `CATMAS_VECTOR_DB_PATH`) para evitar filesystem temporário/somente leitura.
+- Para evitar cold start alto, mantenha `ENABLE_CATMAS_VECTOR_SYNC_ON_STARTUP=false` e rode uma sincronização controlada (job/manual) quando precisar atualizar a base vetorial.
 - Para produção, recomenda-se incluir camada de autenticação, trilha de auditoria e validações jurídicas adicionais.
+
+## Deploy no Azure App Service (API)
+
+1. Configure o Startup Command com Uvicorn/Gunicorn, por exemplo:
+
+```bash
+gunicorn -k uvicorn.workers.UvicornWorker app.main:app
+```
+
+2. Defina variáveis de ambiente no App Service:
+   - `OPENAI_API_KEY`
+   - `OPENAI_CHAT_MODEL=gpt-4.1-mini`
+   - `OPENAI_EMBEDDING_MODEL=text-embedding-3-large`
+   - `ENABLE_CATMAS_VECTOR_SEARCH=true`
+   - `ENABLE_CATMAS_VECTOR_SYNC_ON_STARTUP=false`
+   - `CATMAS_VECTOR_DB_PATH=/home/data/catmas_vectors.db`
+
+3. Garanta permissao de escrita no caminho configurado para o SQLite.
 
 ## Frontend (React + Vite)
 

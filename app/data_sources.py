@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
+import sqlite3
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse
 
+import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
+from openai import OpenAI
 from pypdf import PdfReader
 
 
@@ -73,12 +78,233 @@ class OfficialTables:
     tabela_8: pd.DataFrame
 
 
+class CatmasVectorStore:
+    def __init__(self, db_path: Path, api_key: str, embedding_model: str):
+        self.db_path = db_path
+        self.embedding_model = embedding_model
+        self.enabled = bool(api_key)
+        self.client = OpenAI(api_key=api_key) if self.enabled else None
+        if self.enabled:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._init_db()
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.db_path)
+
+    def _init_db(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS catmas_embeddings (
+                    row_key TEXT PRIMARY KEY,
+                    text_hash TEXT NOT NULL,
+                    embedding TEXT NOT NULL,
+                    tipo_item TEXT,
+                    situacao_item TEXT
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_catmas_tipo ON catmas_embeddings(tipo_item)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_catmas_situacao ON catmas_embeddings(situacao_item)"
+            )
+            conn.commit()
+
+    def _embed_texts(self, texts: List[str], batch_size: int = 96) -> List[List[float]]:
+        if not self.client:
+            return []
+
+        vectors: List[List[float]] = []
+        for start in range(0, len(texts), batch_size):
+            batch = texts[start : start + batch_size]
+            response = self.client.embeddings.create(model=self.embedding_model, input=batch)
+            for item in response.data:
+                vec = np.asarray(item.embedding, dtype=np.float32)
+                norm = np.linalg.norm(vec)
+                if norm > 0:
+                    vec = vec / norm
+                vectors.append(vec.tolist())
+        return vectors
+
+    def sync(self, records: List[Dict[str, str]]) -> None:
+        if not self.enabled or not records:
+            return
+
+        with self._connect() as conn:
+            existing = {
+                key: text_hash
+                for key, text_hash in conn.execute("SELECT row_key, text_hash FROM catmas_embeddings")
+            }
+
+            incoming_keys = {record["row_key"] for record in records}
+            stale_keys = [key for key in existing.keys() if key not in incoming_keys]
+            if stale_keys:
+                conn.executemany("DELETE FROM catmas_embeddings WHERE row_key = ?", [(key,) for key in stale_keys])
+
+            to_upsert: List[Dict[str, str]] = []
+            for record in records:
+                if existing.get(record["row_key"]) != record["text_hash"]:
+                    to_upsert.append(record)
+
+            if not to_upsert:
+                return
+
+            vectors = self._embed_texts([record["embedding_text"] for record in to_upsert])
+            rows = []
+            for record, vector in zip(to_upsert, vectors):
+                rows.append(
+                    (
+                        record["row_key"],
+                        record["text_hash"],
+                        json.dumps(vector, ensure_ascii=False),
+                        record["tipo_item"],
+                        record["situacao_item"],
+                    )
+                )
+
+            conn.executemany(
+                """
+                INSERT INTO catmas_embeddings (row_key, text_hash, embedding, tipo_item, situacao_item)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(row_key) DO UPDATE SET
+                    text_hash=excluded.text_hash,
+                    embedding=excluded.embedding,
+                    tipo_item=excluded.tipo_item,
+                    situacao_item=excluded.situacao_item
+                """,
+                rows,
+            )
+            conn.commit()
+
+    def search(self, query: str, only_active: bool, query_kind: str | None, max_results: int) -> List[Tuple[str, float]]:
+        if not self.enabled or not self.client:
+            return []
+
+        query_response = self.client.embeddings.create(model=self.embedding_model, input=[query])
+        query_vector = np.asarray(query_response.data[0].embedding, dtype=np.float32)
+        norm = np.linalg.norm(query_vector)
+        if norm == 0:
+            return []
+        query_vector = query_vector / norm
+
+        where_clauses = []
+        params: List[str] = []
+        if only_active:
+            where_clauses.append("UPPER(situacao_item) LIKE ?")
+            params.append("%ATIVO%")
+        if query_kind:
+            where_clauses.append("tipo_item = ?")
+            params.append(query_kind)
+
+        sql = "SELECT row_key, embedding FROM catmas_embeddings"
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+
+        scored: List[Tuple[str, float]] = []
+        with self._connect() as conn:
+            for row_key, embedding_json in conn.execute(sql, params):
+                embedding = np.asarray(json.loads(embedding_json), dtype=np.float32)
+                score = float(np.dot(query_vector, embedding))
+                scored.append((row_key, score))
+
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return scored[:max_results]
+
+
 class KnowledgeRepository:
     def __init__(self, base_dir: Path):
         self.base_dir = base_dir
         self.catmas_df = self._load_catmas()
+        self.catmas_by_row_key = {
+            str(row.get("_row_key", "")): row
+            for _, row in self.catmas_df.iterrows()
+            if str(row.get("_row_key", ""))
+        }
+        self.vector_store = CatmasVectorStore(
+            db_path=self._resolve_vector_db_path(),
+            api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+            embedding_model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large").strip() or "text-embedding-3-large",
+        )
+        self.vector_search_enabled = os.getenv("ENABLE_CATMAS_VECTOR_SEARCH", "true").lower() == "true"
+        self.vector_sync_on_startup = self._resolve_vector_sync_default()
+        if self.vector_sync_on_startup:
+            self._sync_catmas_vectors()
         self.tables = self._load_budget_tables()
         self.process_docs_text = self._load_process_documents_text()
+
+    def _resolve_vector_db_path(self) -> Path:
+        configured = os.getenv("CATMAS_VECTOR_DB_PATH", "").strip()
+        if configured:
+            return Path(configured)
+
+        # Em App Service, HOME aponta para armazenamento persistente compartilhado.
+        home_dir = os.getenv("HOME", "").strip()
+        if home_dir:
+            return Path(home_dir) / "data" / "catmas_vectors.db"
+
+        return self.base_dir / "data" / "catmas_vectors.db"
+
+    def _resolve_vector_sync_default(self) -> bool:
+        raw = os.getenv("ENABLE_CATMAS_VECTOR_SYNC_ON_STARTUP", "").strip().lower()
+        if raw in {"1", "true", "yes", "on"}:
+            return True
+        if raw in {"0", "false", "no", "off"}:
+            return False
+
+        # Evita startup caro em App Service quando nao houver configuracao explicita.
+        running_on_azure = bool(os.getenv("WEBSITE_SITE_NAME", "").strip())
+        return not running_on_azure
+
+    def _make_row_key(self, row: pd.Series) -> str:
+        raw = "|".join(
+            [
+                _normalize_spaces(str(row.get("Código Material ou Serviço", ""))),
+                _normalize_spaces(str(row.get("Descrição Material ou Serviço", ""))),
+                _normalize_spaces(str(row.get("Item", ""))),
+                _normalize_spaces(str(row.get("Complementação da Especificação", ""))),
+                _normalize_spaces(str(row.get("Natureza da Despesa", ""))),
+            ]
+        )
+        return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
+
+    def _build_embedding_text(self, row: pd.Series) -> str:
+        return _normalize_spaces(
+            " ".join(
+                [
+                    str(row.get("Descrição Material ou Serviço", "")),
+                    str(row.get("Item", "")),
+                    str(row.get("Complementação da Especificação", "")),
+                    str(row.get("Linhas de Fornecimento", "")),
+                    str(row.get("Natureza da Despesa", "")),
+                ]
+            )
+        )
+
+    def _sync_catmas_vectors(self) -> None:
+        if self.catmas_df.empty or not self.vector_store.enabled or not self.vector_search_enabled:
+            return
+
+        records: List[Dict[str, str]] = []
+        for _, row in self.catmas_df.iterrows():
+            row_key = str(row.get("_row_key", ""))
+            text = self._build_embedding_text(row)
+            text_hash = hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
+            records.append(
+                {
+                    "row_key": row_key,
+                    "embedding_text": text,
+                    "text_hash": text_hash,
+                    "tipo_item": str(row.get("_tipo_item", "")),
+                    "situacao_item": str(row.get("Situação do Item", "")),
+                }
+            )
+
+        try:
+            self.vector_store.sync(records)
+        except Exception as exc:
+            warnings.warn(f"Nao foi possivel sincronizar vetores CATMAS: {exc}", RuntimeWarning)
 
     def _load_catmas(self) -> pd.DataFrame:
         default_sheet_url = (
@@ -139,6 +365,7 @@ class KnowledgeRepository:
         df["_tipo_item"] = ""
         df.loc[tipo_col.str.contains(r"servi[çc]o|prestac", regex=True, na=False), "_tipo_item"] = "SERVICO"
         df.loc[(df["_tipo_item"] == "") & tipo_col.str.contains("material", regex=False, na=False), "_tipo_item"] = "MATERIAL"
+        df["_row_key"] = df.apply(self._make_row_key, axis=1)
         return df
 
     def _empty_catmas_df(self) -> pd.DataFrame:
@@ -157,6 +384,7 @@ class KnowledgeRepository:
         df["_search_text"] = ""
         df["_codigo_limpo"] = ""
         df["_tipo_item"] = ""
+        df["_row_key"] = ""
         return df
 
     def _build_google_sheets_csv_url(self, sheet_url: str) -> str:
@@ -261,6 +489,7 @@ class KnowledgeRepository:
 
     def search_catmas(self, query: str, max_results: int = 15, only_active: bool = True) -> List[Dict[str, str]]:
         candidates: List[Dict[str, str]] = []
+        used_row_keys: set[str] = set()
         token_list = _tokenize(query)[:8]
         text_tokens = [token for token in token_list if not token.isdigit()]
         query_digits = _normalize_digits(query)
@@ -300,7 +529,30 @@ class KnowledgeRepository:
         if df.empty:
             return []
 
+        if self.vector_search_enabled and self.vector_store.enabled and not code_locked:
+            try:
+                allowed_row_keys = set(df["_row_key"].astype(str).tolist())
+                for row_key, similarity in self.vector_store.search(
+                    query=query,
+                    only_active=only_active,
+                    query_kind=query_kind,
+                    max_results=max_results * 3,
+                ):
+                    if row_key not in allowed_row_keys:
+                        continue
+                    row = self.catmas_by_row_key.get(row_key)
+                    if row is None:
+                        continue
+                    score = max(0.0, (similarity + 1.0) / 2.0)
+                    candidates.append(self._row_to_candidate(row, score=score))
+                    used_row_keys.add(row_key)
+            except Exception as exc:
+                warnings.warn(f"Falha na busca vetorial CATMAS, usando fallback textual: {exc}", RuntimeWarning)
+
         for _, row in df.head(5000).iterrows():
+            row_key = str(row.get("_row_key", ""))
+            if row_key and row_key in used_row_keys:
+                continue
             description = _normalize_spaces(
                 f"{row.get('Descrição Material ou Serviço', '')} {row.get('Item', '')} {row.get('Complementação da Especificação', '')}"
             )
@@ -322,6 +574,8 @@ class KnowledgeRepository:
             if score <= 0 and not query_digits:
                 continue
             candidates.append(self._row_to_candidate(row, score=score))
+            if row_key:
+                used_row_keys.add(row_key)
 
         if not candidates:
             for _, row in base_df.head(1200).iterrows():
