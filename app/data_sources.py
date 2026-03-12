@@ -528,6 +528,44 @@ class KnowledgeRepository:
             "score": f"{score:.4f}",
         }
 
+    def _score_catmas_candidate(
+        self,
+        query: str,
+        row: pd.Series,
+        query_digits: str,
+        query_kind: str | None,
+    ) -> float:
+        descricao_ms = _normalize_spaces(str(row.get("Descrição Material ou Serviço", "")))
+        item = _normalize_spaces(str(row.get("Item", "")))
+        complemento = _normalize_spaces(str(row.get("Complementação da Especificação", "")))
+        row_code = _normalize_digits(row.get("Código Material ou Serviço", ""))
+        row_kind = str(row.get("_tipo_item", ""))
+
+        # Priorizacao forte da descricao do material/servico para aderencia ao objeto.
+        desc_score = _score_text(query, descricao_ms)
+        item_score = _score_text(query, item)
+        comp_score = _score_text(query, complemento)
+        combined_score = (desc_score * 0.65) + (item_score * 0.25) + (comp_score * 0.10)
+
+        query_tokens = _tokenize(query)
+        target_text = f"{descricao_ms} {item} {complemento}".lower()
+        if query_tokens:
+            covered = sum(1 for token in query_tokens if token in target_text)
+            combined_score += (covered / len(query_tokens)) * 0.35
+
+        if query_digits and row_code:
+            if row_code == query_digits:
+                combined_score += 2.0
+            elif row_code.startswith(query_digits) or query_digits.startswith(row_code):
+                combined_score += 1.2
+            elif query_digits in row_code:
+                combined_score += 0.8
+
+        if query_kind and row_kind == query_kind:
+            combined_score += 0.2
+
+        return combined_score
+
     def get_catmas_by_code(self, code: str, only_active: bool = True) -> Dict[str, str] | None:
         clean_code = _normalize_digits(code)
         if not clean_code:
@@ -600,7 +638,9 @@ class KnowledgeRepository:
                     row = self.catmas_by_row_key.get(row_key)
                     if row is None:
                         continue
-                    score = max(0.0, (similarity + 1.0) / 2.0)
+                    vector_score = max(0.0, (similarity + 1.0) / 2.0)
+                    lexical_score = self._score_catmas_candidate(query, row, query_digits, query_kind)
+                    score = lexical_score + (vector_score * 0.8)
                     candidates.append(self._row_to_candidate(row, score=score))
                     used_row_keys.add(row_key)
             except Exception as exc:
@@ -610,23 +650,7 @@ class KnowledgeRepository:
             row_key = str(row.get("_row_key", ""))
             if row_key and row_key in used_row_keys:
                 continue
-            description = _normalize_spaces(
-                f"{row.get('Descrição Material ou Serviço', '')} {row.get('Item', '')} {row.get('Complementação da Especificação', '')}"
-            )
-            score = _score_text(query, description)
-            row_code = _normalize_digits(row.get("Código Material ou Serviço", ""))
-            row_kind = str(row.get("_tipo_item", ""))
-
-            if query_digits and row_code:
-                if row_code == query_digits:
-                    score += 2.0
-                elif row_code.startswith(query_digits) or query_digits.startswith(row_code):
-                    score += 1.2
-                elif query_digits in row_code:
-                    score += 0.8
-
-            if query_kind and row_kind == query_kind:
-                score += 0.25
+            score = self._score_catmas_candidate(query, row, query_digits, query_kind)
 
             if score <= 0 and not query_digits:
                 continue
@@ -636,10 +660,7 @@ class KnowledgeRepository:
 
         if not candidates:
             for _, row in base_df.head(1200).iterrows():
-                description = _normalize_spaces(
-                    f"{row.get('Descrição Material ou Serviço', '')} {row.get('Item', '')} {row.get('Complementação da Especificação', '')}"
-                )
-                score = _score_text(query, description)
+                score = self._score_catmas_candidate(query, row, query_digits, query_kind)
                 candidates.append(self._row_to_candidate(row, score=score))
 
         candidates.sort(key=lambda item: float(item["score"]), reverse=True)

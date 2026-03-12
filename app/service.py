@@ -58,10 +58,14 @@ class ExpenseClassificationService:
     def _build_similar_items(self, catmas_candidates: List[dict], limit: int = 5) -> List[SimilarCatmasItem]:
         items: List[SimilarCatmasItem] = []
         for candidate in catmas_candidates[:limit]:
+            descricao = str(
+                candidate.get("descricao_material_servico")
+                or candidate.get("item", "")
+            ).strip()
             items.append(
                 SimilarCatmasItem(
                     codigo=str(candidate.get("codigo_material_servico", "")).strip(),
-                    descricao=str(candidate.get("item", "")).strip(),
+                    descricao=descricao,
                     situacao=str(candidate.get("situacao_item", "")).strip(),
                     grau_similaridade=round(self._to_float(candidate.get("score", 0), 0.0), 4),
                 )
@@ -114,7 +118,8 @@ class ExpenseClassificationService:
         )
 
         defaults = {
-            "item_catmas": first_catmas.get("item", "Sem correspondencia CATMAS"),
+            "item_catmas": first_catmas.get("descricao_material_servico")
+            or first_catmas.get("item", "Sem correspondencia CATMAS"),
             "item_catmas_codigo": first_catmas.get("codigo_material_servico", "N/A"),
             "item_catmas_status": first_catmas.get("situacao_item", "N/A"),
             "item_catmas_linhas_fornecimento": first_catmas.get("linhas_fornecimento", "N/A"),
@@ -182,7 +187,8 @@ class ExpenseClassificationService:
         exact_match = self._is_exact_catmas_match(search_query, replacement)
         return suggestion.model_copy(
             update={
-                "item_catmas": replacement.get("item", suggestion.item_catmas),
+                "item_catmas": replacement.get("descricao_material_servico")
+                or replacement.get("item", suggestion.item_catmas),
                 "item_catmas_codigo": replacement.get("codigo_material_servico", suggestion.item_catmas_codigo),
                 "item_catmas_status": replacement.get("situacao_item", suggestion.item_catmas_status),
                 "item_catmas_linhas_fornecimento": replacement.get(
@@ -211,7 +217,8 @@ class ExpenseClassificationService:
 
     def analyze(self, request: AnalysisRequest) -> AnalysisResponse:
         search_query = f"{request.finalidade} {request.objeto_contratacao}"
-        catmas_candidates = self.repo.search_catmas(search_query, max_results=20, only_active=True)
+        catmas_query = request.objeto_contratacao.strip() or search_query
+        catmas_candidates = self.repo.search_catmas(catmas_query, max_results=20, only_active=True)
         tabela_3 = self.repo.rank_table_entries(self.repo.tables.tabela_3, search_query)
         tabela_4 = self.repo.rank_table_entries(self.repo.tables.tabela_4, search_query)
         tabela_5 = self.repo.rank_table_entries(self.repo.tables.tabela_5, search_query)
@@ -233,7 +240,7 @@ class ExpenseClassificationService:
 
         context_payload = {
             "catmas_candidates": catmas_candidates[: min(12, request.max_sugestoes * 4)],
-            "search_query": search_query,
+            "search_query": catmas_query,
             "tabela_3": tabela_3,
             "tabela_4": tabela_4,
             "tabela_5": tabela_5,
@@ -256,11 +263,11 @@ class ExpenseClassificationService:
             except ValidationError:
                 sugestao = self._build_safe_suggestion(item, context_payload)
 
-            sugestoes.append(self._enforce_existing_catmas(sugestao, search_query, catmas_candidates))
+            sugestoes.append(self._enforce_existing_catmas(sugestao, catmas_query, catmas_candidates))
 
         if not sugestoes:
             sugestao_fallback = self._build_safe_suggestion({}, context_payload)
-            sugestoes.append(self._enforce_existing_catmas(sugestao_fallback, search_query, catmas_candidates))
+            sugestoes.append(self._enforce_existing_catmas(sugestao_fallback, catmas_query, catmas_candidates))
 
         if not request.permitir_multiplas_classificacoes:
             sugestoes = sugestoes[:1]
