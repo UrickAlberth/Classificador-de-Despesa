@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
-from openai import OpenAI
+from openai import AzureOpenAI, OpenAI
 from pypdf import PdfReader
 
 
@@ -79,11 +79,29 @@ class OfficialTables:
 
 
 class CatmasVectorStore:
-    def __init__(self, db_path: Path, api_key: str, embedding_model: str):
+    def __init__(
+        self,
+        db_path: Path,
+        api_key: str,
+        embedding_model: str,
+        provider: str = "openai",
+        azure_endpoint: str = "",
+        azure_api_version: str = "2024-10-21",
+    ):
         self.db_path = db_path
         self.embedding_model = embedding_model
-        self.enabled = bool(api_key)
-        self.client = OpenAI(api_key=api_key) if self.enabled else None
+        self.provider = provider
+        self.enabled = bool(api_key and (provider != "azure" or azure_endpoint))
+        if self.enabled and provider == "azure":
+            self.client = AzureOpenAI(
+                api_key=api_key,
+                api_version=azure_api_version,
+                azure_endpoint=azure_endpoint,
+            )
+        elif self.enabled:
+            self.client = OpenAI(api_key=api_key)
+        else:
+            self.client = None
         if self.enabled:
             try:
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,7 +145,10 @@ class CatmasVectorStore:
         vectors: List[List[float]] = []
         for start in range(0, len(texts), batch_size):
             batch = texts[start : start + batch_size]
-            response = self.client.embeddings.create(model=self.embedding_model, input=batch)
+            try:
+                response = self.client.embeddings.create(model=self.embedding_model, input=batch)
+            except Exception:
+                return []
             for item in response.data:
                 vec = np.asarray(item.embedding, dtype=np.float32)
                 norm = np.linalg.norm(vec)
@@ -190,7 +211,10 @@ class CatmasVectorStore:
         if not self.enabled or not self.client:
             return []
 
-        query_response = self.client.embeddings.create(model=self.embedding_model, input=[query])
+        try:
+            query_response = self.client.embeddings.create(model=self.embedding_model, input=[query])
+        except Exception:
+            return []
         query_vector = np.asarray(query_response.data[0].embedding, dtype=np.float32)
         norm = np.linalg.norm(query_vector)
         if norm == 0:
@@ -224,6 +248,23 @@ class CatmasVectorStore:
 class KnowledgeRepository:
     def __init__(self, base_dir: Path):
         self.base_dir = base_dir
+        provider = os.getenv("AI_PROVIDER", "").strip().lower()
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
+        azure_key = os.getenv("AZURE_OPENAI_API_KEY", "").strip()
+        openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+        if not provider:
+            provider = "azure" if azure_endpoint and azure_key else "openai"
+
+        vector_api_key = azure_key if provider == "azure" else openai_key
+        if not vector_api_key:
+            vector_api_key = openai_key or azure_key
+
+        embedding_model = (
+            os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "").strip()
+            if provider == "azure"
+            else ""
+        ) or os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large").strip() or "text-embedding-3-large"
+
         self.catmas_df = self._load_catmas()
         self.catmas_by_row_key = {
             str(row.get("_row_key", "")): row
@@ -232,8 +273,11 @@ class KnowledgeRepository:
         }
         self.vector_store = CatmasVectorStore(
             db_path=self._resolve_vector_db_path(),
-            api_key=os.getenv("OPENAI_API_KEY", "").strip(),
-            embedding_model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large").strip() or "text-embedding-3-large",
+            api_key=vector_api_key,
+            embedding_model=embedding_model,
+            provider=provider,
+            azure_endpoint=azure_endpoint,
+            azure_api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21").strip() or "2024-10-21",
         )
         self.vector_search_enabled = os.getenv("ENABLE_CATMAS_VECTOR_SEARCH", "true").lower() == "true"
         self.vector_sync_on_startup = self._resolve_vector_sync_default()

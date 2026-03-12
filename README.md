@@ -5,7 +5,7 @@ MVP em Python com FastAPI para classificação econômica da despesa e apoio tri
 - Base CATMAS/SIAD via Google Sheets (com fallback CSV local);
 - Tabelas orçamentárias (XLSX) com foco em Tabelas 3, 4, 5, 7 e 8;
 - Documentos do processo SEI 0038700-03.2026.8.13.0000 como contexto de conhecimento;
-- Integração de IA com OpenAI (gpt-4.1-mini) via chave de API.
+- Integração de IA com OpenAI (gpt-4.1-mini) ou Azure OpenAI via chave de API.
 - Vetorização da base CATMAS em SQLite com embeddings text-embedding-3-large.
 
 ## Requisitos cobertos
@@ -52,9 +52,17 @@ MVP em Python com FastAPI para classificação econômica da despesa e apoio tri
 ## Como executar
 
 1. Crie `.env` a partir de `.env.example` e preencha:
-   - `OPENAI_API_KEY`
-   - `OPENAI_CHAT_MODEL` (default `gpt-4.1-mini`)
-   - `OPENAI_EMBEDDING_MODEL` (default `text-embedding-3-large`)
+    - `AI_PROVIDER=openai` (padrão) ou `AI_PROVIDER=azure`
+    - Se `openai`:
+       - `OPENAI_API_KEY`
+       - `OPENAI_CHAT_MODEL` (default `gpt-4.1-mini`)
+       - `OPENAI_EMBEDDING_MODEL` (default `text-embedding-3-large`)
+    - Se `azure`:
+       - `AZURE_OPENAI_API_KEY`
+       - `AZURE_OPENAI_ENDPOINT` (ex.: `https://seu-recurso.openai.azure.com`)
+       - `AZURE_OPENAI_API_VERSION` (default `2024-10-21`)
+       - `AZURE_OPENAI_CHAT_DEPLOYMENT` (nome do deployment do chat)
+       - `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` (nome do deployment de embeddings)
    - `ENABLE_CATMAS_VECTOR_SEARCH=true`
    - `ENABLE_CATMAS_VECTOR_SYNC_ON_STARTUP=false` (recomendado em App Service)
    - `CATMAS_VECTOR_DB_PATH=/home/data/catmas_vectors.db` (recomendado em App Service Linux)
@@ -90,7 +98,7 @@ curl -X POST http://127.0.0.1:8000/analisar \
 
 ## Observações
 
-- Se a chave OpenAI não for informada ou a chamada falhar, o sistema usa fallback determinístico.
+- Se a configuração OpenAI/Azure não for informada corretamente ou a chamada falhar, o sistema usa fallback determinístico.
 - As consultas externas (IBGE/NFS-e) ficam desabilitadas por padrão para evitar latência; habilite com `ENABLE_EXTERNAL_LOOKUPS=true`.
 - O carregamento CATMAS tenta primeiro o Google Sheets; em caso de indisponibilidade, usa o CSV local `Retrato do Catmas - Fevereiro25 - v3.xlsx - Geral.csv`.
 - Quando habilitado, o sistema gera/atualiza embeddings da base CATMAS e persiste em SQLite para busca vetorial.

@@ -5,13 +5,40 @@ import os
 import re
 from typing import Any, Dict
 
-from openai import OpenAI
+from openai import AzureOpenAI, OpenAI
 
 
 class OpenAIClassifier:
     def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        self.model_name = os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-mini")
+        provider = os.getenv("AI_PROVIDER", "").strip().lower()
+        self.azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
+        azure_key = os.getenv("AZURE_OPENAI_API_KEY", "").strip()
+        openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+        if not provider:
+            provider = "azure" if self.azure_endpoint and azure_key else "openai"
+        self.provider = provider
+
+        if self.provider == "azure":
+            self.api_key = azure_key or openai_key
+            self.model_name = (
+                os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "").strip()
+                or os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-mini").strip()
+            )
+            self.api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21").strip() or "2024-10-21"
+            self.enabled = bool(self.api_key and self.azure_endpoint and self.model_name)
+            if self.enabled:
+                self.client = AzureOpenAI(
+                    api_key=self.api_key,
+                    api_version=self.api_version,
+                    azure_endpoint=self.azure_endpoint,
+                )
+            else:
+                self.client = None
+            return
+
+        self.api_key = openai_key
+        self.model_name = os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini"
         self.enabled = bool(self.api_key)
         if self.enabled:
             self.client = OpenAI(api_key=self.api_key)
@@ -28,17 +55,20 @@ class OpenAIClassifier:
             return self._fallback_response(context_payload)
 
         prompt = self._build_prompt(finalidade, objeto_contratacao, context_payload)
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Responda somente com JSON valido e sem markdown.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Responda somente com JSON valido e sem markdown.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format={"type": "json_object"},
+            )
+        except Exception:
+            return self._fallback_response(context_payload)
         text = (response.choices[0].message.content or "") if response.choices else ""
         parsed = self._extract_json(text)
         if parsed:
