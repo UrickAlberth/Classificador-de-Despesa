@@ -90,41 +90,43 @@ class ExpenseClassificationService:
             return "Compativel"
         return "Possivel incompatibilidade entre objeto contratado e linha de fornecimento"
 
-        def _extract_document_items(self, documento_text: str, tabela_8: List[dict]) -> List[dict]:
-            """Segmenta documento e identifica itens por aderência à interpretação da Tabela 8."""
-            if not documento_text or not tabela_8:
-                return []
-        
-            doc_lower = documento_text.lower()
-            encontrados: List[dict] = []
-            usado: set[str] = set()
-        
-            for entry in tabela_8:
-                interpretacao = str(entry.get("interpretacao", "")).lower().strip()
-                descricao_item = str(entry.get("descricao", "")).lower().strip()
-                codigo_item = str(entry.get("codigo", "")).strip()
-            
-                if not interpretacao:
-                    continue
-            
-                palavras_chave = [p.strip() for p in interpretacao.split() if len(p.strip()) > 3]
-                match_score = 0.0
-            
-                for palavra in palavras_chave[:5]:
-                    if palavra in doc_lower:
-                        match_score += 0.2
-            
-                if match_score >= 0.4 and codigo_item not in usado:
-                    encontrados.append({
+    def _extract_document_items(self, documento_text: str, tabela_8: List[dict]) -> List[dict]:
+        """Segmenta documento e identifica itens por aderência à interpretação da Tabela 8."""
+        if not documento_text or not tabela_8:
+            return []
+
+        doc_lower = documento_text.lower()
+        encontrados: List[dict] = []
+        usado: set[str] = set()
+
+        for entry in tabela_8:
+            interpretacao = str(entry.get("interpretacao", "")).lower().strip()
+            descricao_item = str(entry.get("descricao", "")).lower().strip()
+            codigo_item = str(entry.get("codigo", "")).strip()
+
+            if not interpretacao:
+                continue
+
+            palavras_chave = [p.strip() for p in interpretacao.split() if len(p.strip()) > 3]
+            match_score = 0.0
+
+            for palavra in palavras_chave[:5]:
+                if palavra in doc_lower:
+                    match_score += 0.2
+
+            if match_score >= 0.4 and codigo_item not in usado:
+                encontrados.append(
+                    {
                         "codigo_item_tabela8": codigo_item,
                         "descricao_item_tabela8": descricao_item,
                         "interpretacao": interpretacao,
                         "match_score": match_score,
-                    })
-                    usado.add(codigo_item)
-        
-            encontrados.sort(key=lambda x: x["match_score"], reverse=True)
-            return encontrados[:10]
+                    }
+                )
+                usado.add(codigo_item)
+
+        encontrados.sort(key=lambda x: x["match_score"], reverse=True)
+        return encontrados[:10]
 
     def _build_tabela8_enriched_query(
         self,
