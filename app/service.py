@@ -6,7 +6,7 @@ from typing import List
 
 from pydantic import ValidationError
 
-from .data_sources import KnowledgeRepository, _normalize_digits, _score_text
+from .data_sources import KnowledgeRepository, _normalize_digits, _normalize_spaces, _score_text
 from .document_ai import infer_objeto_contratacao_from_text
 from .external_integrations import validar_cnae_e_tributacao
 from .gemini_client import OpenAIClassifier
