@@ -48,6 +48,8 @@ MVP em Python com FastAPI para classificação econômica da despesa e apoio tri
 - `app/gemini_client.py`: integração OpenAI (chat + fallback).
 - `app/service.py`: orquestração e regras de negócio.
 - `frontend/`: aplicação React para operação do fluxo com painel de andamento.
+- `docs/REUNIAO_ALINHAMENTO_CIAR_GEFIN_2026-03-19.md`: resumo técnico, decisões e backlog priorizado da reunião de alinhamento (19/03/2026).
+- `docs/RELATORIO_BASE_PARA_CRIACAO_DO_SISTEMA.md`: consolidado completo de requisitos, arquitetura, regras, backlog, testes e implantação.
 
 ## Como executar
 

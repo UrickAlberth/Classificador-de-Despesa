@@ -90,6 +90,88 @@ class ExpenseClassificationService:
             return "Compativel"
         return "Possivel incompatibilidade entre objeto contratado e linha de fornecimento"
 
+    def _build_tabela8_enriched_query(
+        self,
+        base_objeto: str,
+        search_query: str,
+        documento_text: str,
+        tabela_8: List[dict],
+    ) -> str:
+        base_reference = _normalize_spaces(
+            f"{search_query} {base_objeto} {(documento_text or '')[:2500]}"
+        )
+        if not tabela_8:
+            return _normalize_spaces(base_objeto or search_query)
+
+        partes = [base_objeto or search_query]
+        for item in tabela_8[:3]:
+            interpretacao = str(item.get("interpretacao", "")).strip()
+            descricao = str(item.get("descricao", "")).strip()
+            codigo = str(item.get("codigo", "")).strip()
+
+            # Somente injeta contexto de Tabela 8 com aderencia minima ao documento.
+            if interpretacao and _score_text(base_reference, interpretacao) >= 0.06:
+                partes.append(interpretacao)
+            if descricao and _score_text(base_reference, descricao) >= 0.05:
+                partes.append(descricao)
+            if codigo:
+                partes.append(codigo)
+
+        return _normalize_spaces(" ".join(partes))
+
+    def _rerank_catmas_with_tabela8(
+        self,
+        catmas_candidates: List[dict],
+        tabela_8: List[dict],
+        search_reference: str,
+    ) -> List[dict]:
+        if not catmas_candidates or not tabela_8:
+            return catmas_candidates
+
+        reranked: List[dict] = []
+        top_tabela8 = tabela_8[:3]
+
+        for candidate in catmas_candidates:
+            base_score = self._to_float(candidate.get("score", 0), 0.0)
+            candidate_text = _normalize_spaces(
+                " ".join(
+                    [
+                        str(candidate.get("descricao_material_servico", "")),
+                        str(candidate.get("item", "")),
+                        str(candidate.get("linhas_fornecimento", "")),
+                    ]
+                )
+            )
+            natureza_text = str(candidate.get("natureza_despesa", ""))
+
+            best_cross_score = 0.0
+            for entry in top_tabela8:
+                interpretacao = str(entry.get("interpretacao", ""))
+                descricao_item = str(entry.get("descricao", ""))
+                codigo_item = str(entry.get("codigo", ""))
+
+                doc_interp = _score_text(search_reference, interpretacao)
+                doc_desc = _score_text(search_reference, descricao_item)
+                catmas_interp = _score_text(candidate_text, interpretacao)
+                catmas_desc = _score_text(candidate_text, descricao_item)
+                natureza_match = _score_text(natureza_text, f"{codigo_item} {descricao_item}")
+
+                cross_score = (
+                    (doc_interp * 0.25)
+                    + (doc_desc * 0.15)
+                    + (catmas_interp * 0.35)
+                    + (catmas_desc * 0.15)
+                    + (natureza_match * 0.10)
+                )
+                best_cross_score = max(best_cross_score, cross_score)
+
+            updated = dict(candidate)
+            updated["score"] = f"{(base_score + best_cross_score):.4f}"
+            reranked.append(updated)
+
+        reranked.sort(key=lambda item: self._to_float(item.get("score", 0), 0.0), reverse=True)
+        return reranked
+
     def _build_safe_suggestion(self, ai_item: dict, context_payload: dict) -> ClassificationSuggestion:
         catmas = context_payload.get("catmas_candidates", [])
         t3 = context_payload.get("tabela_3", [])
@@ -221,15 +303,20 @@ class ExpenseClassificationService:
         documento_text = (request.texto_documentos or "").strip()
         objeto_inferido = infer_objeto_contratacao_from_text(documento_text)
 
+        tabela8_query = _normalize_spaces(f"{search_query} {documento_text[:3500]}")
+        tabela_8 = self.repo.rank_table_entries(self.repo.tables.tabela_8, tabela8_query)
+
         # Quando houver anexos com objeto identificavel, ele vira a fonte primaria da busca CATMAS.
         base_objeto = objeto_inferido or request.objeto_contratacao.strip() or search_query
-        catmas_query = base_objeto
+        catmas_query = self._build_tabela8_enriched_query(base_objeto, search_query, documento_text, tabela_8)
         catmas_candidates = self.repo.search_catmas(catmas_query, max_results=20, only_active=True)
+        search_reference = _normalize_spaces(f"{search_query} {documento_text[:3000]}")
+        catmas_candidates = self._rerank_catmas_with_tabela8(catmas_candidates, tabela_8, search_reference)
+
         tabela_3 = self.repo.rank_table_entries(self.repo.tables.tabela_3, search_query)
         tabela_4 = self.repo.rank_table_entries(self.repo.tables.tabela_4, search_query)
         tabela_5 = self.repo.rank_table_entries(self.repo.tables.tabela_5, search_query)
         tabela_7 = self.repo.rank_table_entries(self.repo.tables.tabela_7, search_query)
-        tabela_8 = self.repo.rank_table_entries(self.repo.tables.tabela_8, search_query)
 
         external_enabled = os.getenv("ENABLE_EXTERNAL_LOOKUPS", "false").lower() == "true"
         validacao_externa = (

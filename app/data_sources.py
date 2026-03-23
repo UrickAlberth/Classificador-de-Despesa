@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sqlite3
+import unicodedata
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,12 @@ from pypdf import PdfReader
 
 def _normalize_spaces(value: str) -> str:
     return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def _normalize_label(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value))
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "_", ascii_only.lower()).strip("_")
 
 
 def _tokenize(value: str) -> List[str]:
@@ -667,19 +674,62 @@ class KnowledgeRepository:
         return candidates[:max_results]
 
     def rank_table_entries(self, table_df: pd.DataFrame, query: str, max_results: int = 8) -> List[Dict[str, str]]:
+        normalized_columns = {
+            _normalize_label(column): str(column)
+            for column in table_df.columns
+        }
+        interpretacao_col = next(
+            (
+                original
+                for normalized, original in normalized_columns.items()
+                if "interpret" in normalized
+            ),
+            "",
+        )
+        item_codigo_col = normalized_columns.get("cd_item_despesa", "")
+        item_descricao_col = normalized_columns.get("denominacao_item_despesa", "")
+        elemento_codigo_col = normalized_columns.get("cd_elemento_despesa", "")
+
+        query_tokens = _tokenize(query)
         entries: List[Dict[str, str]] = []
         for _, row in table_df.iterrows():
             values = [str(v) for v in row.tolist()]
             joined = _normalize_spaces(" ".join(values))
             score = _score_text(query, joined)
+
+            interpretacao = _normalize_spaces(str(row.get(interpretacao_col, ""))) if interpretacao_col else ""
+            item_descricao = _normalize_spaces(str(row.get(item_descricao_col, ""))) if item_descricao_col else ""
+            item_codigo = _normalize_spaces(str(row.get(item_codigo_col, ""))) if item_codigo_col else ""
+            elemento_codigo = _normalize_spaces(str(row.get(elemento_codigo_col, ""))) if elemento_codigo_col else ""
+
+            if interpretacao:
+                interpretacao_score = _score_text(query, interpretacao)
+                item_desc_score = _score_text(query, item_descricao)
+                score = max(score, (interpretacao_score * 0.60) + (item_desc_score * 0.25) + (score * 0.15))
+
+                if query_tokens:
+                    lowered = interpretacao.lower()
+                    covered = sum(1 for token in query_tokens if token in lowered)
+                    score += (covered / max(len(query_tokens), 1)) * 0.25
+
             if score <= 0:
                 continue
+
             codigo, descricao = _split_code_description(values)
+            if item_codigo:
+                codigo = item_codigo
+            if item_descricao:
+                descricao = item_descricao
+
             entries.append(
                 {
                     "valor": joined,
                     "codigo": codigo,
                     "descricao": descricao,
+                    "cd_elemento_despesa": elemento_codigo,
+                    "cd_item_despesa": item_codigo,
+                    "denominacao_item_despesa": item_descricao,
+                    "interpretacao": interpretacao,
                     "score": f"{score:.4f}",
                 }
             )
